@@ -248,7 +248,7 @@ class _ShineHomePageState extends State<ShineHomePage> {
           ShineButton(icon: Icons.play_arrow_rounded, height: 66,
             label: 'MULAI', onPressed: () => setState(() => _entered = true)),
           const SizedBox(height: 28),
-          const Center(child: Text('v1.4.0',
+          const Center(child: Text('v1.5.0',
             style: TextStyle(fontSize: 12, color: shineMuted, letterSpacing: 2.4))),
           const Spacer(flex: 1),
         ]),
@@ -268,7 +268,7 @@ class _ShineHomePageState extends State<ShineHomePage> {
               mainAxisSize: MainAxisSize.min, children: [
                 Text('SHINE', style: TextStyle(color: shineGoldLight,
                   fontSize: 27, fontWeight: FontWeight.w900, letterSpacing: 5)),
-                Text('v1.4.0', style: TextStyle(color: shineMuted,
+                Text('v1.5.0', style: TextStyle(color: shineMuted,
                   fontSize: 10, letterSpacing: 1.5)),
               ])),
             TextButton.icon(onPressed: _howToPlay, icon: const Icon(Icons.help_outline),
@@ -295,7 +295,7 @@ class _ShineHomePageState extends State<ShineHomePage> {
             _recordSection(),
           ],
           const SizedBox(height: 30),
-          const Center(child: Text('SHINE  •  v1.4.0',
+          const Center(child: Text('SHINE  •  v1.5.0',
             style: TextStyle(color: shineMuted, fontSize: 11, letterSpacing: 2))),
         ]))),
     ]);

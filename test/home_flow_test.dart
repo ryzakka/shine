@@ -20,7 +20,7 @@ void main() {
     await open(tester, const Size(320, 568));
     expect(find.text('SHINE'), findsOneWidget);
     expect(find.text('MULAI'), findsOneWidget);
-    expect(find.text('v1.4.0'), findsOneWidget);
+    expect(find.text('v1.5.0'), findsOneWidget);
     expect(find.text('LAWAN KOMPUTER'), findsNothing);
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('MULAI'));
@@ -35,7 +35,7 @@ void main() {
     await open(tester, const Size(1280, 800));
     await tester.tap(find.text('MULAI'));
     await tester.pump(const Duration(milliseconds: 900));
-    expect(find.text('SHINE  •  v1.4.0'), findsOneWidget);
+    expect(find.text('SHINE  •  v1.5.0'), findsOneWidget);
     expect(find.text('LAWAN KOMPUTER'), findsOneWidget);
     expect(find.text('DUA PEMAIN'), findsOneWidget);
     expect(find.text('MASUK ARENA ONLINE'), findsOneWidget);

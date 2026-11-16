@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'room_revision_tracker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Publishable project credentials, NOT an admin/service_role credential.
@@ -81,10 +83,76 @@ class ShineService {
     return [for (final room in result) Map<String, dynamic>.from(room)];
   }
 
-  Stream<List<Map<String, dynamic>>> watchRoom(String id) => client
-      .from('shine_rooms')
-      .stream(primaryKey: ['id'])
-      .eq('id', id);
+  /// Always read the authoritative server state. Supabase Realtime is used
+  /// for immediate updates, while polling is a fallback if replication is not
+  /// enabled for shine_rooms or a browser misses an event while in background.
+  Future<Map<String, dynamic>?> roomById(String id) async {
+    final room = await client.from('shine_rooms')
+        .select().eq('id', id).maybeSingle();
+    return room == null ? null : Map<String, dynamic>.from(room);
+  }
+
+  Stream<List<Map<String, dynamic>>> watchRoom(String id) {
+    final tracker = RoomRevisionTracker();
+    StreamSubscription<List<Map<String, dynamic>>>? realtime;
+    Timer? polling;
+    bool fetching = false;
+    bool disposed = false;
+    late final StreamController<List<Map<String, dynamic>>> updates;
+
+    void publish(Map<String, dynamic>? room) {
+      if (disposed || updates.isClosed || !tracker.accept(room)) return;
+      updates.add(room == null ? <Map<String, dynamic>>[] : [room]);
+    }
+
+    Future<void> refresh() async {
+      if (fetching || disposed) return;
+      fetching = true;
+      try {
+        publish(await roomById(id));
+      } catch (error, stack) {
+        // Keep the last good state during a temporary disconnection.
+        // On first load let the screen show an actionable error.
+        if (!disposed && !updates.isClosed && !tracker.hasSnapshot) {
+          updates.addError(error, stack);
+        }
+      } finally {
+        fetching = false;
+      }
+    }
+
+    updates = StreamController<List<Map<String, dynamic>>>(
+      onListen: () {
+        // Install the independent fallback FIRST, even if Realtime throws.
+        unawaited(refresh());
+        polling = Timer.periodic(const Duration(seconds: 2), (_) {
+          unawaited(refresh());
+        });
+        try {
+          realtime = client.from('shine_rooms')
+              .stream(primaryKey: ['id']).eq('id', id)
+              .listen((rows) {
+            // Empty Realtime snapshots can be transient. Confirm via HTTP.
+            if (rows.isNotEmpty) {
+              publish(Map<String, dynamic>.from(rows.first));
+            } else {
+              unawaited(refresh());
+            }
+          }, onError: (Object _) {
+            unawaited(refresh());
+          });
+        } catch (_) {
+          // Polling alone still advances the guest to playing.
+        }
+      },
+      onCancel: () async {
+        disposed = true;
+        polling?.cancel();
+        await realtime?.cancel();
+      },
+    );
+    return updates.stream;
+  }
 
   /// Kartu dipilih SETELAH kedua akun bergabung ke ruang.
   Future<void> submitLineup(String roomId, List<String> cards) async {

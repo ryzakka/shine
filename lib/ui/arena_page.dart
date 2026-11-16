@@ -9,6 +9,7 @@ import '../data/characters.dart';
 import '../domain/battle_match.dart';
 import '../domain/battle_rules.dart';
 import '../online/shine_service.dart';
+import '../online/active_room_store.dart';
 import 'shine_ui.dart';
 import 'squad_picker.dart';
 
@@ -165,6 +166,13 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
     }
   }
 
+  Future<void> _leaveOnlineView() async {
+    // Leaving the view is not surrendering. The room remains on Supabase,
+    // accessible from "Lanjutkan ruang saya", but no auto-resume next refresh.
+    await ActiveOnlineRoomStore.clearIfRoom(widget.roomId);
+    if (mounted) Navigator.of(context).pop();
+  }
+
   Future<bool> _ask(String title, String body, String confirm) async {
     if (!mounted) return false;
     return await showDialog<bool>(context: context,
@@ -208,7 +216,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
               if (action != null) ...[
                 const SizedBox(height: 22),
                 SizedBox(width: 240, child: ShineButton(label: action,
-                    icon: Icons.home_outlined, onPressed: () => Navigator.pop(context))),
+                    icon: Icons.home_outlined, onPressed: _leaveOnlineView)),
               ],
             ]))),
       );
@@ -248,7 +256,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
     return ShineScaffold(
       appBar: AppBar(title: const Text('RUANG PERTANDINGAN'), actions: [
         IconButton(tooltip:'Kembali tanpa membubarkan ruang',
-            onPressed: () => Navigator.pop(context), icon: const Icon(Icons.home_outlined)),
+            onPressed: _leaveOnlineView, icon: const Icon(Icons.home_outlined)),
       ]),
       body: SafeArea(child: Center(child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 920),
@@ -341,7 +349,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
           const SizedBox(height: 20),
           ShineButton(primary: false, icon: Icons.home_outlined, height: 48,
             label: 'KEMBALI KE BERANDA', subtitle: 'Ruang tetap tersedia',
-            onPressed: () => Navigator.pop(context)),
+            onPressed: _leaveOnlineView),
           const SizedBox(height: 8),
           TextButton.icon(
             onPressed: submitting ? null : () async {
@@ -350,7 +358,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
               } else if (await _ask('Keluar dari lobi?',
                     'Slot pemain kedua dibuka kembali. Tim host perlu dipilih ulang.', 'Keluar')) {
                 final success = await _perform(() => service.leaveLobby(widget.roomId));
-                if (success && mounted) Navigator.pop(context);
+                if (success && mounted) await _leaveOnlineView();
               }
             },
             style: TextButton.styleFrom(foregroundColor: shineEmber),
@@ -407,7 +415,11 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
     ]));
 
   @override
-  Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
+  Widget build(BuildContext context) => PopScope(
+    onPopInvokedWithResult: (didPop, _) {
+      if (didPop) unawaited(ActiveOnlineRoomStore.clearIfRoom(widget.roomId));
+    },
+    child: StreamBuilder<List<Map<String, dynamic>>>(
     stream: roomStream,
     builder: (context, snapshot) {
       if (snapshot.hasError && _lastRoom == null) return _centerScaffold(title: 'ONLINE',
@@ -415,8 +427,8 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
           action: 'KE BERANDA');
       if (!snapshot.hasData && _lastRoom == null) return _centerScaffold(title: 'ONLINE',
           icon: Icons.hourglass_bottom, message: 'Memuat ruang…', spinner: true);
-      if (snapshot.hasData && snapshot.data!.isNotEmpty) {
-        _lastRoom = snapshot.data!.first;
+      if (snapshot.hasData) {
+        _lastRoom = snapshot.data!.isEmpty ? null : snapshot.data!.first;
       }
       if (_lastRoom == null) return _centerScaffold(title: 'ONLINE',
           icon: Icons.meeting_room_outlined,
@@ -444,7 +456,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
         canAct: canAct && !submitting && status == 'playing',
         turnDeadline: deadlineString == null ? null : DateTime.tryParse(deadlineString)?.toUtc(),
         onTimeout: status == 'playing' ? _expire : null,
-        onExit: () => Navigator.pop(context),
+        onExit: _leaveOnlineView,
         onSurrender: status == 'playing' && !submitting
             ? () => _endRoom(disband:false) : null,
         onDisband: status == 'playing' && isHost && !submitting
@@ -460,7 +472,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
         },
       );
     },
-  );
+  ));
 }
 
 /// Sinematik pengungkapan sinkron di kedua perangkat; waktu berasal dari server.

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../online/shine_service.dart';
+import '../online/active_room_store.dart';
 import 'arena_page.dart';
 import 'shine_ui.dart';
 
@@ -70,6 +71,20 @@ class _OnlineRoomsPageState extends State<OnlineRoomsPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
   }
 
+  /// Save the room before navigation, so a browser refresh can restore it.
+  Future<void> _openRoom(Map<String, dynamic> room) async {
+    final playerId = _service.client.auth.currentUser?.id;
+    if (playerId == null) throw StateError('Sesi pemain belum siap.');
+    final id = room['id']?.toString();
+    final code = room['code']?.toString();
+    if (id == null || code == null) throw StateError('Data ruang tidak lengkap.');
+    await ActiveOnlineRoomStore.save(ActiveOnlineRoom(
+      roomId: id, roomCode: code, playerId: playerId));
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => OnlineArenaPage(roomId: id, roomCode: code)));
+  }
+
   Future<void> _run(Future<Map<String, dynamic>> Function() operation) async {
     if (_busy) return;
     final issue = _nameIssue();
@@ -80,8 +95,7 @@ class _OnlineRoomsPageState extends State<OnlineRoomsPage> {
       await prefs.setString('shine_player_name', _name.text.trim());
       final room = await operation();
       if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute(builder: (_) => OnlineArenaPage(
-        roomId: room['id'].toString(), roomCode: room['code'].toString())));
+      await _openRoom(room);
       if (mounted) await _refresh();
     } catch (e) {
       _notice('Gagal membuka ruang: $e');
@@ -107,8 +121,7 @@ class _OnlineRoomsPageState extends State<OnlineRoomsPage> {
           ),
         ]));
       if (selected != null && mounted) {
-        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => OnlineArenaPage(
-          roomId: selected['id'].toString(), roomCode: selected['code'].toString())));
+        await _openRoom(selected);
       }
     } catch (e) { _notice('Tidak dapat memuat ruang: $e'); }
     finally { if (mounted) setState(() => _busy = false); }
@@ -246,7 +259,7 @@ class _OnlineRoomsPageState extends State<OnlineRoomsPage> {
               TextButton.icon(onPressed: _busy ? null : _resume,
                 icon: const Icon(Icons.restore), label: const Text('LANJUTKAN RUANG SAYA')),
               const SizedBox(height: 10),
-              const Center(child: Text('SHINE  •  v1.4.0',
+              const Center(child: Text('SHINE  •  v1.5.0',
                 style: TextStyle(color: shineMuted, fontSize: 11, letterSpacing: 2))),
             ]))),
         ]);

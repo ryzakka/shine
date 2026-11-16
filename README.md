@@ -1,3 +1,5 @@
+> **SHINE v1.5.0:** Pemulihan sesi online setelah refresh dan sinkronisasi host/tamu dengan fallback HTTP. Baca `PERUBAHAN_V15.md`.
+
 # SHINE v1.4.0 — Multiplayer publik/privat dan stabilisasi arena
 
 **Mulai dari:** `CHANGELOG_V14.md` dan migrasi `supabase/migrations/004_public_rooms_player_names.sql`.
