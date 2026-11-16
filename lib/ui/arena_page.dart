@@ -388,6 +388,602 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════
+//  PERTARUNGAN — tata letak ala "Jurassic World: The Game" versi kartu
+// ═════════════════════════════════════════════════════════════════
+
+double _seg(double t, double a, double b) => ((t - a) / (b - a)).clamp(0.0, 1.0);
+double _frac(double v) => v - v.floorToDouble();
+
+class _Ghost {
+  const _Ghost(this.side, this.id, this.ko);
+  final int side;
+  final String id;
+  final bool ko; // true = tumbang, false = ditarik keluar (ganti tokoh)
+}
+
+/// Ringkasan satu giliran yang baru selesai, diturunkan dari selisih state.
+class _Fx {
+  const _Fx({required this.actor, required this.attackPts, required this.defend,
+    required this.reserveSaved, required this.damage, required this.absorbed,
+    required this.oldBlockTarget, required this.skill, required this.skillName,
+    required this.swap, required this.timeout, required this.heal,
+    required this.selfDamage, required this.ghosts});
+  final int actor, attackPts, defend, reserveSaved, damage, absorbed,
+      oldBlockTarget, heal, selfDamage;
+  final bool skill, swap, timeout;
+  final String skillName;
+  final List<_Ghost> ghosts;
+  int get target => 1 - actor;
+  bool get attacked => attackPts > 0 && !swap && !timeout;
+  bool get passive => !attacked && !swap && !timeout;
+  double get intensity => math.max(.2, attackPts / 8);
+}
+
+class _Pose {
+  const _Pose({this.dx = 0, this.dy = 0, this.scale = 1, this.rot = 0,
+    this.flash = 0, this.flashColor = shineEmber, this.opacity = 1});
+  final double dx, dy, scale, rot, flash, opacity;
+  final Color flashColor;
+}
+
+// ───────────── Latar adegan ─────────────
+
+class _ScenePainter extends CustomPainter {
+  _ScenePainter(this.amb, this.accent) : super(repaint: amb);
+  final Animation<double> amb;
+  final Color accent;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height, cx = w / 2;
+    // kerucut lampu sorot
+    final cone = Path()
+      ..moveTo(cx - 20, 0)..lineTo(cx + 20, 0)
+      ..lineTo(cx + w * .62, h * .74)..lineTo(cx - w * .62, h * .74)..close();
+    canvas.drawPath(cone, Paint()..shader = LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [accent.withValues(alpha: .26), accent.withValues(alpha: .02)])
+        .createShader(Rect.fromLTWH(0, 0, w, h * .74)));
+    // lantai berperspektif
+    final fy = h * .5;
+    canvas.drawRect(Rect.fromLTWH(0, fy, w, h - fy), Paint()..shader = LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [Colors.transparent, Colors.black.withValues(alpha: .55)])
+        .createShader(Rect.fromLTWH(0, fy, w, h - fy)));
+    final grid = Paint()..color = accent.withValues(alpha: .07)..strokeWidth = 1;
+    for (var i = -6; i <= 6; i++) {
+      canvas.drawLine(Offset(cx, fy), Offset(cx + i * w * .24, h), grid);
+    }
+    for (var i = 1; i <= 4; i++) {
+      final y = fy + (h - fy) * (i * i / 16);
+      canvas.drawLine(Offset(0, y), Offset(w, y), grid);
+    }
+    // hujan
+    final a = amb.value;
+    final rain = Paint()..strokeWidth = 1.1;
+    for (var i = 0; i < 58; i++) {
+      final x = _frac(i * .6180339) * w;
+      final y = _frac(i * .7549 + a * (2 + i % 3)) * h;
+      rain.color = const Color(0xFFBFD8FF).withValues(alpha: .07 + .08 * _frac(i * .37));
+      canvas.drawLine(Offset(x, y), Offset(x - 3, y + 15), rain);
+    }
+    // debu bercahaya
+    for (var i = 0; i < 14; i++) {
+      final x = _frac(i * .413 + math.sin(a * math.pi * 2 + i) * .02) * w;
+      final y = _frac(i * .271 - a) * h;
+      canvas.drawCircle(Offset(x, y), 1.6,
+          Paint()..color = shineGold.withValues(alpha: .25));
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _ScenePainter old) => old.accent != accent;
+}
+
+class _FloorPainter extends CustomPainter {
+  const _FloorPainter(this.centers, this.cw, this.ch, this.accents);
+  final List<Offset> centers;
+  final double cw, ch;
+  final List<Color> accents;
+  @override
+  void paint(Canvas canvas, Size size) {
+    for (var i = 0; i < centers.length; i++) {
+      final c = centers[i];
+      final rect = Rect.fromCenter(center: Offset(c.dx, c.dy + ch * .5 + 2),
+          width: cw * 1.25, height: ch * .12);
+      canvas.drawOval(rect.inflate(10), Paint()
+        ..color = accents[i].withValues(alpha: .28)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18));
+      canvas.drawOval(rect, Paint()
+        ..color = Colors.black.withValues(alpha: .6)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
+    }
+  }
+  @override
+  bool shouldRepaint(covariant _FloorPainter old) => true;
+}
+
+// ───────────── Efek di atas panggung ─────────────
+
+Path _hexPath(Offset c, double rx, double ry, {bool flat = false}) {
+  final p = Path();
+  for (var i = 0; i < 6; i++) {
+    final a = (flat ? 0 : -math.pi / 2) + i * math.pi / 3;
+    final pt = Offset(c.dx + rx * math.cos(a), c.dy + ry * math.sin(a));
+    if (i == 0) { p.moveTo(pt.dx, pt.dy); } else { p.lineTo(pt.dx, pt.dy); }
+  }
+  return p..close();
+}
+
+class _StagePainter extends CustomPainter {
+  _StagePainter({required this.ambA, required this.fxA, required this.fx,
+    required this.leftSide, required this.centers, required this.cw,
+    required this.ch, required this.shieldAmt, required this.shieldAlpha,
+    required this.reserves, required this.reserveAlpha, required this.aim,
+    required this.aimSide, required this.skillAura, required this.auraSide})
+      : super(repaint: Listenable.merge([ambA, fxA]));
+  final Animation<double> ambA;
+  final AnimationController fxA;
+  final _Fx? fx;
+  final int leftSide;
+  final List<Offset> centers; // [kiri, kanan]
+  final double cw, ch;
+  final List<double> shieldAmt, shieldAlpha, reserveAlpha;
+  final List<int> reserves;
+  final double aim;
+  final int aimSide, auraSide;
+  final bool skillAura;
+
+  Offset pos(int side) => side == leftSide ? centers[0] : centers[1];
+
+  void _glowLine(Canvas c, Offset a, Offset b, Color color, double w, double alpha) {
+    c.drawLine(a, b, Paint()..color = color.withValues(alpha: alpha * .75)
+      ..strokeWidth = w * 2.4..strokeCap = StrokeCap.round
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    c.drawLine(a, b, Paint()..color = Colors.white.withValues(alpha: alpha)
+      ..strokeWidth = w * .55..strokeCap = StrokeCap.round);
+  }
+
+  void _ring(Canvas c, Offset ctr, double r, Color color, double w, double alpha) {
+    if (alpha <= 0) return;
+    c.drawCircle(ctr, r, Paint()..style = PaintingStyle.stroke..strokeWidth = w * 2
+      ..color = color.withValues(alpha: alpha * .6)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
+    c.drawCircle(ctr, r, Paint()..style = PaintingStyle.stroke..strokeWidth = w
+      ..color = Color.lerp(color, Colors.white, .6)!.withValues(alpha: alpha));
+  }
+
+  void _dot(Canvas c, Offset p, double r, Color color, double alpha) {
+    c.drawCircle(p, r * 2.2, Paint()..color = color.withValues(alpha: alpha * .6)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6));
+    c.drawCircle(p, r, Paint()..color = Color.lerp(color, Colors.white, .7)!
+        .withValues(alpha: alpha));
+  }
+
+  void _shield(Canvas canvas, Offset c, double alpha, double amt, double amb,
+      {double scale = 1, bool badge = true}) {
+    if (alpha <= 0) return;
+    final rx = cw * .78 * scale, ry = ch * .6 * scale;
+    final path = _hexPath(c, rx, ry);
+    final a = (alpha * (.78 + .22 * math.sin(amb * math.pi * 6))).clamp(0.0, 1.0);
+    canvas.drawPath(path, Paint()..shader = RadialGradient(colors: [
+      Colors.transparent, shineAzure.withValues(alpha: .26 * a)])
+        .createShader(Rect.fromCenter(center: c, width: rx * 2, height: ry * 2)));
+    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = 6
+      ..color = shineAzure.withValues(alpha: .7 * a)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7));
+    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = 2.2
+      ..color = Colors.white.withValues(alpha: .85 * a));
+    canvas.drawPath(_hexPath(c, rx * .88, ry * .88), Paint()
+      ..style = PaintingStyle.stroke..strokeWidth = 1
+      ..color = shineAzure.withValues(alpha: .45 * a));
+    if (badge && amt > 0) {
+      final bc = Offset(c.dx + rx * .866, c.dy - ry * .5);
+      canvas.drawCircle(bc, 14, Paint()..color = const Color(0xFF0E2A44).withValues(alpha: a));
+      canvas.drawCircle(bc, 14, Paint()..style = PaintingStyle.stroke..strokeWidth = 2
+        ..color = shineAzure.withValues(alpha: a));
+      final tp = TextPainter(text: TextSpan(text: '${amt.toInt()}',
+          style: TextStyle(color: Colors.white.withValues(alpha: a),
+              fontWeight: FontWeight.w900, fontSize: 14)),
+          textDirection: TextDirection.ltr)..layout();
+      tp.paint(canvas, bc - Offset(tp.width / 2, tp.height / 2));
+    }
+  }
+
+  void _orbs(Canvas canvas, Offset c, int n, double alpha, double amb) {
+    for (var i = 0; i < n; i++) {
+      final a = amb * math.pi * 2 + i * math.pi * 2 / n;
+      final p = Offset(c.dx + math.cos(a) * cw * .62,
+          c.dy + ch * .2 + math.sin(a) * ch * .1);
+      _dot(canvas, p, 5.5 + 1.8 * math.sin(a), shineGold, alpha);
+    }
+  }
+
+  void _reticle(Canvas canvas, Offset c, double amb) {
+    final r = ch * (.38 + .06 * aim) + math.sin(amb * math.pi * 6) * 3;
+    canvas.drawCircle(c, r, Paint()..style = PaintingStyle.stroke..strokeWidth = 8
+      ..color = shineEmber.withValues(alpha: .1 + .16 * aim)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
+    for (var i = 0; i < 4; i++) {
+      canvas.drawArc(Rect.fromCircle(center: c, radius: r),
+          amb * math.pi * 2 + i * math.pi / 2, math.pi / 3, false,
+          Paint()..style = PaintingStyle.stroke..strokeCap = StrokeCap.round
+            ..strokeWidth = 2.5 + 2 * aim..color = shineEmber.withValues(alpha: .9));
+      final d = Offset(math.cos(i * math.pi / 2), math.sin(i * math.pi / 2));
+      canvas.drawLine(c + d * (r + 5), c + d * (r + 15), Paint()
+        ..strokeWidth = 2.5..color = shineEmber.withValues(alpha: .85));
+    }
+    canvas.drawCircle(c, 3, Paint()..color = shineEmber);
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final amb = ambA.value;
+    for (var side = 0; side < 2; side++) {
+      final c = pos(side);
+      _shield(canvas, c, shieldAlpha[side], shieldAmt[side], amb);
+      if (reserves[side] > 0) _orbs(canvas, c, reserves[side], reserveAlpha[side], amb);
+    }
+    if (skillAura) {
+      final c = pos(auraSide);
+      final r = ch * .55 + math.sin(amb * math.pi * 6) * 4;
+      canvas.drawCircle(c, r, Paint()..shader = RadialGradient(colors: [
+        Colors.transparent, shineViolet.withValues(alpha: .3)])
+          .createShader(Rect.fromCircle(center: c, radius: r)));
+      _ring(canvas, c, r, shineViolet, 2.5, .8);
+    }
+    if (aim > 0) _reticle(canvas, pos(aimSide), amb);
+
+    final e = fx;
+    if (e == null || !fxA.isAnimating) return;
+    final t = fxA.value;
+    final ac = pos(e.actor), tc = pos(e.target);
+
+    if (e.attacked && t >= .2) {
+      const ta = .22;
+      if (e.damage > 0) {
+        final n = 1 + (e.attackPts >= 3 ? 1 : 0) + (e.attackPts >= 6 ? 1 : 0);
+        for (var i = 0; i < n; i++) {
+          final k = (i - (n - 1) / 2) * cw * .3;
+          final p0 = Offset(tc.dx + cw * .45 + k, tc.dy - ch * .45);
+          final p1 = Offset(tc.dx - cw * .45 + k, tc.dy + ch * .45);
+          final s = Curves.easeOut.transform(_seg(t, ta + i * .05, ta + .2 + i * .05));
+          final fade = 1 - _seg(t, ta + .3, ta + .6);
+          if (s > 0) _glowLine(canvas, p0, Offset.lerp(p0, p1, s)!, shineEmber,
+              5 + 4 * e.intensity, fade);
+        }
+        final rp = _seg(t, ta, ta + .4);
+        _ring(canvas, tc, 10 + (ch * .7) * Curves.easeOut.transform(rp),
+            shineEmber, 4, (1 - rp));
+        for (var i = 0; i < 10; i++) {
+          final a = i * math.pi * 2 / 10 + .3;
+          final d = Offset(math.cos(a), math.sin(a));
+          final r0 = ch * .18 + rp * ch * .2, r1 = r0 + ch * .12 * (1 - rp);
+          _glowLine(canvas, tc + d * r0, tc + d * r1, shineGold, 2.5, 1 - rp);
+        }
+      } else {
+        final rp = _seg(t, ta, ta + .4);
+        _ring(canvas, tc, ch * .3 + ch * .25 * rp, shineAzure, 4, 1 - rp);
+      }
+      if (e.absorbed > 0) {
+        final p = _seg(t, ta, ta + .35);
+        _shield(canvas, tc, (1 - p) * .95, 0, amb,
+            scale: 1 + .5 * Curves.easeOut.transform(p), badge: false);
+        for (var i = 0; i < 8; i++) {
+          final a = i * math.pi / 4 + .2;
+          final d = Offset(math.cos(a), math.sin(a) * 1.3);
+          final from = tc + Offset(d.dx * cw * .55, d.dy * ch * .4);
+          _glowLine(canvas, from, from + d * (18 + 40 * p), shineAzure, 3, (1 - p));
+        }
+      }
+    }
+
+    if (e.defend > 0) {
+      final p = _seg(t, 0, .5);
+      _shield(canvas, ac, (1 - p) * .9, 0, amb,
+          scale: .5 + .65 * Curves.easeOut.transform(p), badge: false);
+      final g = Rect.fromCenter(center: Offset(ac.dx, ac.dy + ch * .5),
+          width: cw * (.8 + p), height: ch * .1 * (.6 + p));
+      canvas.drawOval(g, Paint()..style = PaintingStyle.stroke..strokeWidth = 3
+        ..color = shineAzure.withValues(alpha: 1 - p));
+    }
+
+    if (e.reserveSaved > 0) {
+      final n = math.min(10, e.reserveSaved * 2 + 2);
+      for (var i = 0; i < n; i++) {
+        final p = _seg(t, i * .03, .72 + i * .03);
+        if (p <= 0 || p >= 1) continue;
+        final x = ac.dx + math.sin(i * 2.4) * cw * .5 * (1 - p * .6);
+        final y = ac.dy + ch * .45 - (ch * .27) * Curves.easeOut.transform(p);
+        _dot(canvas, Offset(x, y), 4, shineGold, math.sin(p * math.pi));
+      }
+      final gp = _seg(t, 0, .5);
+      canvas.drawOval(Rect.fromCenter(center: Offset(ac.dx, ac.dy + ch * .5),
+          width: cw * (.6 + gp), height: ch * .09 * (.6 + gp)),
+          Paint()..style = PaintingStyle.stroke..strokeWidth = 3
+            ..color = shineGold.withValues(alpha: 1 - gp));
+    }
+
+    if (e.skill) {
+      final p = _seg(t, 0, .5);
+      final r = 10 + ch * .75 * Curves.easeOut.transform(p);
+      canvas.drawCircle(ac, ch * .5, Paint()..shader = RadialGradient(colors: [
+        shineViolet.withValues(alpha: (1 - p) * .5), Colors.transparent])
+          .createShader(Rect.fromCircle(center: ac, radius: ch * .5)));
+      _ring(canvas, ac, r, shineViolet, 5 * (1 - p) + 1, 1 - p);
+      for (var i = 0; i < 14; i++) {
+        final a = i * math.pi * 2 / 14;
+        final d = Offset(math.cos(a), math.sin(a));
+        _glowLine(canvas, ac + d * r * .55, ac + d * r * .95, shineViolet, 2.2, 1 - p);
+      }
+    }
+
+    if (e.passive) {
+      final p = _seg(t, 0, .85);
+      final a = math.sin(p * math.pi);
+      for (var i = 0; i < 3; i++) {
+        canvas.drawArc(Rect.fromCenter(center: ac, width: cw * (1.15 + .18 * i),
+            height: ch * (.8 + .1 * i)), t * math.pi * 3 + i * 2.1, math.pi / 2.3, false,
+            Paint()..style = PaintingStyle.stroke..strokeCap = StrokeCap.round
+              ..strokeWidth = 3..color = const Color(0xFFCFE6FF).withValues(alpha: a * .7));
+      }
+      for (var i = 0; i < 4; i++) {
+        final q = _seg(t, i * .06, .6 + i * .06);
+        final side = i.isEven ? -1.0 : 1.0;
+        canvas.drawOval(Rect.fromCenter(
+            center: Offset(ac.dx + side * cw * (.2 + .25 * q), ac.dy + ch * .5),
+            width: 20 + 30 * q, height: 7 + 8 * q),
+            Paint()..color = Colors.white.withValues(alpha: .25 * (1 - q)));
+      }
+    }
+
+    if (e.timeout) {
+      final p = _seg(t, 0, .6);
+      final r = ch * .2 + ch * .5 * Curves.easeOut.transform(p);
+      _ring(canvas, ac, r, shineMuted, 4, 1 - p);
+      for (var i = 0; i < 12; i++) {
+        final a = i * math.pi / 6;
+        final d = Offset(math.cos(a), math.sin(a));
+        canvas.drawLine(ac + d * r * .9, ac + d * r * 1.08, Paint()
+          ..strokeWidth = 2..color = Colors.white.withValues(alpha: (1 - p) * .8));
+      }
+    }
+
+    if (e.heal > 0) {
+      for (var i = 0; i < 9; i++) {
+        final p = _seg(t, .08 + i * .05, .7 + i * .05);
+        if (p <= 0 || p >= 1) continue;
+        final x = ac.dx + math.sin(i * 2.1) * cw * .42;
+        final y = ac.dy + ch * .3 - ch * .8 * Curves.easeOut.transform(p);
+        final a = math.sin(p * math.pi);
+        final pa = Paint()..strokeWidth = 3..strokeCap = StrokeCap.round
+          ..color = shineJade.withValues(alpha: a);
+        canvas.drawLine(Offset(x - 7, y), Offset(x + 7, y), pa);
+        canvas.drawLine(Offset(x, y - 7), Offset(x, y + 7), pa);
+      }
+    }
+
+    for (final g in e.ghosts) {
+      final gc = pos(g.side);
+      if (g.ko) {
+        final p = _seg(t, .3, .85);
+        if (p > 0) {
+          _ring(canvas, gc, 10 + ch * .6 * Curves.easeOut.transform(p), shineEmber, 4, 1 - p);
+          for (var i = 0; i < 5; i++) {
+            final q = _seg(t, .3 + i * .04, .95);
+            canvas.drawCircle(Offset(gc.dx + math.sin(i * 1.9) * cw * .4,
+                gc.dy + ch * .3 - q * ch * .45), 14 + 14 * q,
+                Paint()..color = Colors.white.withValues(alpha: .18 * (1 - q)));
+          }
+        }
+      } else {
+        final p = _seg(t, .4, .75);
+        _ring(canvas, gc, ch * .2 + ch * .45 * p, shineGold, 4, 1 - p);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _StagePainter old) => true;
+}
+
+// ───────────── Kartu di panggung ─────────────
+
+class _CardFace extends StatelessWidget {
+  const _CardFace({required this.spec, required this.accent, this.tint,
+    this.tintAlpha = 0, this.gray = false});
+  final CharacterSpec spec;
+  final Color accent;
+  final Color? tint;
+  final double tintAlpha;
+  final bool gray;
+
+  @override
+  Widget build(BuildContext context) {
+    final face = Container(
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [
+            BoxShadow(color: accent.withValues(alpha: .4), blurRadius: 26, spreadRadius: -3),
+            BoxShadow(color: Colors.black.withValues(alpha: .5), blurRadius: 14, offset: const Offset(0, 8)),
+          ]),
+      child: Stack(fit: StackFit.expand, children: [
+        Portrait(spec, radius: 18),
+        Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                stops: const [.62, 1], colors: [Colors.transparent, Colors.black.withValues(alpha: .88)])))),
+        Positioned(left: 8, right: 8, bottom: 8, child: Column(
+            mainAxisSize: MainAxisSize.min, children: [
+          Text(spec.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center, style: const TextStyle(
+                  fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: .5)),
+          Text(spec.skill, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 10, color: shineGold)),
+        ])),
+        if (tint != null && tintAlpha > 0) Positioned.fill(child: IgnorePointer(
+            child: DecoratedBox(decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                color: tint!.withValues(alpha: tintAlpha.clamp(0.0, 1.0)))))),
+      ]),
+    );
+    if (!gray) return face;
+    return ColorFiltered(colorFilter: const ColorFilter.matrix(<double>[
+      .2126, .7152, .0722, 0, 0, .2126, .7152, .0722, 0, 0,
+      .2126, .7152, .0722, 0, 0, 0, 0, 0, 1, 0]), child: face);
+  }
+}
+
+class _HudPlate extends StatelessWidget {
+  const _HudPlate({required this.team, required this.mirrored,
+    required this.accent, required this.label, required this.isTurn});
+  final Map<String,dynamic> team;
+  final bool mirrored, isTurn;
+  final Color accent;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final cards = team['cards'] as List;
+    final unit = Map<String,dynamic>.from(cards[(team['active'] as num).toInt()] as Map);
+    final spec = characterById(unit['id'] as String);
+    final hp = (unit['hp'] as num).toInt();
+    final maxHp = (unit['max_hp'] as num?)?.toInt() ?? spec.hp;
+    final reserve = (team['reserve'] as num).toInt();
+    final block = (team['block'] as num).toInt();
+    final end = mirrored ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final info = Expanded(child: Column(crossAxisAlignment: end,
+        mainAxisAlignment: MainAxisAlignment.center, children: [
+          Text(label, style: TextStyle(color: accent, fontSize: 9,
+              fontWeight: FontWeight.w900, letterSpacing: 1.4)),
+          Text(spec.name.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: .6)),
+          const SizedBox(height: 3),
+          Row(mainAxisAlignment: mirrored ? MainAxisAlignment.end : MainAxisAlignment.start,
+              children: [
+                const Icon(Icons.add, size: 15, color: shineAzure),
+                Text('$hp', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+              ]),
+          HpBar(hp: hp, maxHp: maxHp, height: 8, showText: false),
+          const SizedBox(height: 4),
+          Row(mainAxisAlignment: mirrored ? MainAxisAlignment.end : MainAxisAlignment.start,
+              children: [
+                const Icon(Icons.flash_on, size: 13, color: shineEmber),
+                Text('${spec.attack}', style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w900, color: shineEmber)),
+                const SizedBox(width: 8),
+                const Icon(Icons.inventory_2_outlined, size: 12, color: shineGold),
+                Text('$reserve', style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w900, color: shineGold)),
+                const SizedBox(width: 8),
+                const Icon(Icons.shield_outlined, size: 12, color: shineAzure),
+                Text('$block', style: const TextStyle(
+                    fontSize: 12, fontWeight: FontWeight.w900, color: shineAzure)),
+              ]),
+        ]));
+    final thumb = Portrait(spec, width: 54, height: 72, radius: 10);
+    return Container(
+      padding: const EdgeInsets.all(6),
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          gradient: LinearGradient(
+              begin: mirrored ? Alignment.centerRight : Alignment.centerLeft,
+              end: mirrored ? Alignment.centerLeft : Alignment.centerRight,
+              colors: [accent.withValues(alpha: .38), const Color(0xCC12101C)]),
+          border: Border.all(color: accent.withValues(alpha: isTurn ? .95 : .35),
+              width: isTurn ? 1.8 : 1),
+          boxShadow: isTurn
+              ? [BoxShadow(color: accent.withValues(alpha: .4), blurRadius: 18, spreadRadius: -2)] : null),
+      child: Row(children: mirrored
+          ? [info, const SizedBox(width: 8), thumb]
+          : [thumb, const SizedBox(width: 8), info]),
+    );
+  }
+}
+
+class _HexPainter extends CustomPainter {
+  const _HexPainter(this.color, this.active, this.enabled);
+  final Color color;
+  final bool active, enabled;
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final base = enabled ? color : const Color(0xFF6B6880);
+    final path = _hexPath(c, size.width / 2 - 2, size.height / 2 - 2, flat: true);
+    if (active) {
+      canvas.drawPath(path, Paint()..color = base.withValues(alpha: .75)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12));
+    }
+    canvas.drawPath(path, Paint()..shader = LinearGradient(
+        begin: Alignment.topCenter, end: Alignment.bottomCenter,
+        colors: [Color.lerp(base, Colors.white, .35)!, base,
+          Color.lerp(base, Colors.black, .45)!]).createShader(Offset.zero & size));
+    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = 2.6
+      ..color = Colors.white.withValues(alpha: enabled ? .9 : .4));
+    canvas.drawPath(_hexPath(c, size.width / 2 - 9, size.height / 2 - 8, flat: true),
+        Paint()..style = PaintingStyle.stroke..strokeWidth = 1.4
+          ..color = Colors.white.withValues(alpha: .5));
+  }
+  @override
+  bool shouldRepaint(covariant _HexPainter old) =>
+      old.color != color || old.active != active || old.enabled != enabled;
+}
+
+class _HexButton extends StatelessWidget {
+  const _HexButton({required this.icon, required this.color, required this.label,
+    required this.count, required this.onTap, this.onMinus, this.onLongPress,
+    this.enabled = true, this.cooldown = 0, this.badgeText});
+  final IconData icon;
+  final Color color;
+  final String label;
+  final int count, cooldown;
+  final String? badgeText;
+  final VoidCallback? onTap, onMinus, onLongPress;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) => Column(mainAxisSize: MainAxisSize.min, children: [
+    SizedBox(width: 76, height: 66, child: GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: enabled ? onTap : null, onLongPress: enabled ? onLongPress : null,
+      child: AnimatedScale(
+        duration: const Duration(milliseconds: 160), scale: count > 0 ? 1.06 : 1,
+        child: Stack(children: [
+          Positioned.fill(child: CustomPaint(painter: _HexPainter(color, count > 0, enabled))),
+          Center(child: cooldown > 0
+              ? Column(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.hourglass_bottom, color: Colors.white70, size: 20),
+            Text('$cooldown', style: const TextStyle(color: Colors.white,
+                fontWeight: FontWeight.w900, fontSize: 15)),
+          ])
+              : Icon(icon, color: Colors.white, size: 31,
+              shadows: const [Shadow(color: Colors.black54, blurRadius: 6)])),
+          Positioned(right: 0, bottom: 0, child: Container(
+              constraints: const BoxConstraints(minWidth: 26),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(color: const Color(0xFF12101C),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: color, width: 1.6)),
+              child: Text(badgeText ?? '$count', textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900,
+                      fontSize: 13)))),
+          if (onMinus != null && count > 0) Positioned(left: 0, top: 0,
+              child: GestureDetector(onTap: onMinus, child: Container(
+                  width: 24, height: 24,
+                  decoration: BoxDecoration(color: const Color(0xFF12101C), shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white70)),
+                  child: const Icon(Icons.remove, size: 15, color: Colors.white)))),
+        ]),
+      ),
+    )),
+    const SizedBox(height: 4),
+    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
+        fontSize: 10.5, fontWeight: FontWeight.w900, letterSpacing: .8,
+        color: enabled ? Color.lerp(color, Colors.white, .35) : Colors.white38)),
+  ]);
+}
+
 class MatchArena extends StatefulWidget {
   const MatchArena({super.key, required this.state, required this.title,
     required this.canAct, required this.onAction,
@@ -413,26 +1009,40 @@ class MatchArena extends StatefulWidget {
   State<MatchArena> createState() => _MatchArenaState();
 }
 
-class _MatchArenaState extends State<MatchArena> {
+class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   int attack = 0, defend = 0, reserve = 0;
   bool skill = false, busy = false;
-  Timer? _countdown;
+  Timer? _countdown, _bannerTimer, _resultTimer;
   bool _timeoutNotified = false;
   DateTime? _lastTimeoutAttempt;
   int _turnTotal = 30;
+  bool _resultReady = false;
+  _Fx? _event;
+  late final AnimationController _fxC = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1900));
+  late final AnimationController _amb = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 3000));
+  late final AnimationController _bannerC = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 1800));
+
   int get remainingSeconds => widget.turnDeadline == null ? 0 : math.max(0,
       (widget.turnDeadline!.difference(DateTime.now().toUtc()).inMilliseconds / 1000).ceil());
   int get turn => (widget.state['turn'] as num).toInt();
   int get activeSide => (turn-1)%2;
   List<dynamic> get teams => widget.state['teams'] as List<dynamic>;
-  Map<String,dynamic> get own => Map<String,dynamic>.from(teams[activeSide] as Map);
+  Map<String,dynamic> _team(int side) => Map<String,dynamic>.from(teams[side] as Map);
+  Map<String,dynamic> get own => _team(activeSide);
   Map<String,dynamic> get ownCard => Map<String,dynamic>.from((own['cards'] as List)[(own['active'] as num).toInt()] as Map);
   CharacterSpec get spec => characterById(ownCard['id'] as String);
   int get available => math.min(8, math.min(turn,4)+(own['reserve'] as num).toInt());
   int get spent => attack+defend+reserve+(skill ? spec.cost : 0);
-  int get foeBlock => (Map<String,dynamic>.from(teams[1-activeSide] as Map)['block'] as num).toInt();
+  int get foeBlock => (_team(1-activeSide)['block'] as num).toInt();
   bool get _offensive => const {'damage','pierce','recoil','conditional_damage','hybrid'}.contains(spec.kind);
   bool get _personal => widget.isBotMatch || widget.onReplay == null;
+  // Sisi kiri layar: pemain sendiri; pada hotseat selalu Tim A.
+  int get _left => _personal ? widget.viewerSide : 0;
+  int get _right => 1 - _left;
+  bool get _planning => widget.canAct && widget.state['winner'] == null;
 
   void reset() {
     skill=false; defend=0;
@@ -444,7 +1054,10 @@ class _MatchArenaState extends State<MatchArena> {
   void initState() {
     super.initState();
     reset();
+    _amb.repeat();
+    _resultReady = widget.state['winner'] != null;
     _turnTotal = math.max(1, remainingSeconds);
+    _playBanner();
     _countdown = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       final now = DateTime.now().toUtc();
@@ -460,21 +1073,101 @@ class _MatchArenaState extends State<MatchArena> {
       setState(() {});
     });
   }
+
   @override
   void dispose() {
-    _countdown?.cancel();
+    _countdown?.cancel(); _bannerTimer?.cancel(); _resultTimer?.cancel();
+    _fxC.dispose(); _amb.dispose(); _bannerC.dispose();
     super.dispose();
   }
+
+  void _playBanner({int delayMs = 0}) {
+    _bannerTimer?.cancel();
+    _bannerTimer = Timer(Duration(milliseconds: delayMs), () {
+      if (mounted && widget.state['winner'] == null) _bannerC.forward(from: 0);
+    });
+  }
+
   @override
   void didUpdateWidget(covariant MatchArena oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.state['turn']!=widget.state['turn']) reset();
+    if (oldWidget.state['turn'] != widget.state['turn']) {
+      reset();
+      final fx = _buildFx(oldWidget.state, widget.state);
+      if (fx != null) {
+        _event = fx;
+        _fxC.forward(from: 0);
+        if (fx.attacked) {
+          HapticFeedback.mediumImpact();
+        } else {
+          HapticFeedback.selectionClick();
+        }
+      }
+      _playBanner(delayMs: fx == null ? 0 : 1500);
+    }
+    if (oldWidget.state['winner'] == null && widget.state['winner'] != null) {
+      _resultTimer?.cancel();
+      _resultTimer = Timer(const Duration(milliseconds: 1800), () {
+        if (mounted) setState(() => _resultReady = true);
+      });
+    }
     if (oldWidget.turnDeadline != widget.turnDeadline ||
         oldWidget.state['turn'] != widget.state['turn']) {
       _timeoutNotified = false;
       _lastTimeoutAttempt = null;
       _turnTotal = math.max(1, remainingSeconds);
     }
+  }
+
+  /// Menurunkan kejadian giliran dari log dan selisih HP/PA kedua state.
+  _Fx? _buildFx(Map<String,dynamic> oldS, Map<String,dynamic> newS) {
+    try {
+      final oldTurn = (oldS['turn'] as num).toInt();
+      final newTurn = (newS['turn'] as num).toInt();
+      if (newTurn <= oldTurn) return null;
+      final actor = (oldTurn - 1) % 2;
+      final log = newS['log'] as String? ?? '';
+      Map<String,dynamic> tm(Map<String,dynamic> s, int i) =>
+          Map<String,dynamic>.from((s['teams'] as List)[i] as Map);
+      final oa = tm(oldS, actor), na = tm(newS, actor);
+      final ot = tm(oldS, 1 - actor), nt = tm(newS, 1 - actor);
+      int hp(Map<String,dynamic> t, int i) =>
+          (((t['cards'] as List)[i] as Map)['hp'] as num).toInt();
+      int act(Map<String,dynamic> t) => (t['active'] as num).toInt();
+      String idAt(Map<String,dynamic> t, int i) =>
+          ((t['cards'] as List)[i] as Map)['id'] as String;
+      final swap = log.contains('mengganti') || log.contains('berganti');
+      final timeout = log.contains('Waktu');
+      final m = RegExp(r'(\d+) serang, (\d+) bertahan, (\d+) cadangan').firstMatch(log);
+      final sk = RegExp(r'Skill (.+?) aktif').firstMatch(log);
+      final tIdx = act(ot), aIdx = act(oa);
+      var heal = 0;
+      for (var i = 0; i < 3; i++) {
+        final d = hp(na, i) - hp(oa, i);
+        if (d > 0) heal += d;
+      }
+      final ghosts = <_Ghost>[];
+      if (hp(ot, tIdx) > 0 && hp(nt, tIdx) <= 0) {
+        ghosts.add(_Ghost(1 - actor, idAt(ot, tIdx), true));
+      }
+      if (hp(oa, aIdx) > 0 && hp(na, aIdx) <= 0) {
+        ghosts.add(_Ghost(actor, idAt(oa, aIdx), true));
+      } else if (swap && act(na) != aIdx) {
+        ghosts.add(_Ghost(actor, idAt(oa, aIdx), false));
+      }
+      final pts = m == null ? 0 : int.parse(m.group(1)!);
+      return _Fx(
+          actor: actor, attackPts: pts,
+          defend: m == null ? 0 : int.parse(m.group(2)!),
+          reserveSaved: m == null ? 0 : int.parse(m.group(3)!),
+          damage: math.max(0, hp(ot, tIdx) - hp(nt, tIdx)),
+          absorbed: math.min(pts, (ot['block'] as num).toInt()),
+          oldBlockTarget: (ot['block'] as num).toInt(),
+          skill: sk != null, skillName: sk?.group(1) ?? '',
+          swap: swap, timeout: timeout, heal: heal,
+          selfDamage: math.max(0, hp(oa, aIdx) - hp(na, aIdx)),
+          ghosts: ghosts);
+    } catch (_) { return null; }
   }
 
   Future<void> submit({int? swapTo}) async {
@@ -508,8 +1201,6 @@ class _MatchArenaState extends State<MatchArena> {
                   child: const Text('Ya, ganti'))]));
     if (approved == true && mounted) await submit(swapTo: index);
   }
-
-  // ───────────── Logika bantu tampilan ─────────────
 
   String? get _issue {
     if (spent != available) {
@@ -564,6 +1255,20 @@ class _MatchArenaState extends State<MatchArena> {
     }
   });
 
+  void _add(String what, {bool fill = false}) {
+    final free = available - spent;
+    if (free <= 0) { HapticFeedback.heavyImpact(); return; }
+    setState(() {
+      final room = what == 'a' ? 8 - attack : what == 'd' ? 8 - defend : 4 - reserve;
+      final n = math.min(room, fill ? free : 1);
+      if (n <= 0) return;
+      if (what == 'a') { attack += n; }
+      else if (what == 'd') { defend += n; }
+      else { reserve += n; }
+    });
+    HapticFeedback.selectionClick();
+  }
+
   String get _turnLabel {
     if (widget.state['winner'] != null) return 'PERTANDINGAN SELESAI';
     if (_personal) {
@@ -577,6 +1282,12 @@ class _MatchArenaState extends State<MatchArena> {
   Color get _accent {
     if (widget.state['winner'] != null || !_personal) return shineGold;
     return activeSide == widget.viewerSide ? shineAzure : shineEmber;
+  }
+
+  String _sideLabel(int side) {
+    if (widget.isBotMatch) return side == widget.viewerSide ? 'KAMU' : 'KOMPUTER';
+    if (!_personal) return 'TIM ${side == 0 ? 'A' : 'B'}';
+    return side == widget.viewerSide ? 'KAMU' : 'LAWAN';
   }
 
   void _showHistory() => showModalBottomSheet<void>(
@@ -605,73 +1316,387 @@ class _MatchArenaState extends State<MatchArena> {
     ),
   );
 
-  // ───────────── Bagian tampilan ─────────────
+  void _showMenu() => showModalBottomSheet<void>(
+      context: context,
+      builder: (sheet) {
+        Widget tile(IconData icon, String text, VoidCallback run, {Color? color}) =>
+            ListTile(leading: Icon(icon, color: color ?? shineGold),
+                title: Text(text, style: TextStyle(color: color)),
+                onTap: () { Navigator.pop(sheet); run(); });
+        return SafeArea(child: Padding(padding: const EdgeInsets.only(bottom: 10),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Text(widget.title, style: const TextStyle(color: shineGold,
+                  fontWeight: FontWeight.w900, letterSpacing: 2)),
+              const SizedBox(height: 6),
+              if (widget.onExit != null)
+                tile(Icons.home_outlined, 'Beranda (pertandingan tetap ada)', widget.onExit!),
+              if (widget.history.isNotEmpty)
+                tile(Icons.history, 'Riwayat pertarungan', _showHistory),
+              if (widget.onSurrender != null)
+                tile(Icons.flag_outlined, 'Menyerah (lawan menang)',
+                        () => widget.onSurrender!(), color: shineEmber),
+              if (widget.onDisband != null)
+                tile(Icons.delete_outline, 'Bubarkan ruang (host)',
+                        () => widget.onDisband!(), color: shineEmber),
+              if (widget.onStopLocal != null)
+                tile(Icons.stop_circle_outlined, 'Hentikan pertandingan lokal',
+                        () => widget.onStopLocal!(), color: shineEmber),
+            ])));
+      });
 
-  Widget _timer() {
-    final frac = (remainingSeconds / _turnTotal).clamp(0.0, 1.0);
-    final urgent = remainingSeconds <= 10;
-    final color = urgent ? shineEmber : shineGold;
-    return SizedBox(width: 50, height: 50, child: Stack(fit: StackFit.expand, children: [
-      CircularProgressIndicator(value: frac, strokeWidth: 4,
-          backgroundColor: Colors.white12, color: color),
-      Center(child: Text('$remainingSeconds', style: TextStyle(
-          fontWeight: FontWeight.w900, fontSize: 16, color: color))),
-    ]));
+  // ───────────── Pose kartu ─────────────
+
+  _Pose _poseFor(int side, double t, _Fx? fx, double gap) {
+    final toward = side == _left ? 1.0 : -1.0;
+    if (fx == null) {
+      if (_planning && side == activeSide && !busy) {
+        if (attack > 0) {
+          return _Pose(dx: toward * (4 + 2.0 * math.min(attack, 6)), scale: 1.015);
+        }
+        return _Pose(dx: -toward * 8, scale: .96);
+      }
+      return const _Pose();
+    }
+    var dx = 0.0, dy = 0.0, sc = 1.0, rot = 0.0, flash = 0.0, op = 1.0;
+    var fc = shineEmber;
+    if (side == fx.actor) {
+      if (fx.attacked) {
+        final out = Curves.easeOutCubic.transform(_seg(t, 0, .22));
+        final back = Curves.easeInOut.transform(_seg(t, .32, .62));
+        final d = out * (1 - back);
+        dx = toward * gap * .62 * d; rot = toward * .06 * d; sc = 1 + .08 * d;
+      } else if (fx.timeout) {
+        sc = 1 - .04 * math.sin(math.pi * _seg(t, 0, .6));
+      } else if (!fx.swap) {
+        final p = math.sin(math.pi * _seg(t, 0, .7));
+        sc = 1 - .07 * p; dx = -toward * 14 * p; dy = 6 * p;
+      }
+      if (fx.defend > 0) sc *= 1 + .05 * math.sin(math.pi * _seg(t, 0, .5));
+      if (fx.heal > 0) {
+        flash = .35 * math.sin(math.pi * _seg(t, .1, .8)); fc = shineJade;
+      }
+      if (fx.selfDamage > 0) {
+        final p = _seg(t, .25, .7);
+        if (p > 0) {
+          flash = math.max(flash, .5 * (1 - p)); fc = shineEmber;
+          dx += math.sin(p * math.pi * 8) * 6 * (1 - p);
+        }
+      }
+    } else if (fx.attacked) {
+      final p = _seg(t, .22, .75);
+      if (p > 0 && p < 1) {
+        final amp = (fx.damage > 0 ? 9.0 : 3.0) * (.4 + fx.intensity) * (1 - p);
+        final actorDir = fx.actor == _left ? 1.0 : -1.0;
+        dx = math.sin(p * math.pi * 9) * amp +
+            actorDir * 16 * fx.intensity * math.sin(math.pi * _seg(t, .22, .5));
+        if (fx.damage > 0) {
+          flash = .55 * (1 - _seg(t, .22, .5)); fc = shineEmber;
+        } else {
+          flash = .3 * (1 - _seg(t, .22, .45)); fc = shineAzure;
+        }
+      }
+    }
+    for (final g in fx.ghosts) {
+      if (g.side != side) continue;
+      final st = g.ko ? .62 : .42;
+      final e = Curves.easeOutCubic.transform(_seg(t, st, st + .3));
+      op = e; dx += (side == _left ? -1 : 1) * 70 * (1 - e);
+    }
+    return _Pose(dx: dx, dy: dy, scale: sc, rot: rot, flash: flash,
+        flashColor: fc, opacity: op);
   }
 
-  Widget _turnBanner() {
-    final winner = widget.state['winner'];
-    final urgent = winner == null && widget.turnDeadline != null && remainingSeconds <= 10;
-    return ShinePanel(
-      tint: _accent, radius: 18,
-      borderColor: urgent ? shineEmber.withValues(alpha: .8) : _accent.withValues(alpha: .35),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      child: Row(children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('GILIRAN $turn', style: const TextStyle(fontSize: 10.5,
-              color: shineMuted, letterSpacing: 2.5, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 2),
-          Text(_turnLabel, style: TextStyle(fontSize: 20,
-              fontWeight: FontWeight.w900, letterSpacing: 1.5, color: _accent)),
-        ])),
-        if (winner == null && widget.turnDeadline != null) _timer(),
-      ]),
+  Widget _slot(int side, Offset c, double cw, double ch, _Pose pose,
+      _Fx? fx, double t) {
+    final team = _team(side);
+    final unit = Map<String,dynamic>.from(
+        (team['cards'] as List)[(team['active'] as num).toInt()] as Map);
+    final cur = characterById(unit['id'] as String);
+    final accent = side == _left ? shineAzure : shineEmber;
+    final out = side == _left ? -1.0 : 1.0;
+    _Ghost? ghost;
+    if (fx != null) {
+      for (final g in fx.ghosts) { if (g.side == side) ghost = g; }
+    }
+    final kids = <Widget>[];
+    if (ghost != null) {
+      final g = ghost;
+      final p = g.ko ? _seg(t, .3, .78) : _seg(t, 0, .45);
+      kids.add(Positioned.fill(child: Opacity(
+          opacity: (1 - p).clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: g.ko ? Offset(out * 20 * p, 50 * p) : Offset(out * 90 * p, 0),
+            child: Transform.rotate(angle: g.ko ? out * .5 * p : 0,
+                child: Stack(fit: StackFit.expand, children: [
+                  _CardFace(spec: characterById(g.id), accent: accent,
+                      gray: g.ko && p > 0, tint: shineEmber,
+                      tintAlpha: g.ko ? .4 * _seg(t, .22, .4) : 0),
+                  if (g.ko && p > 0) Center(child: Transform.rotate(angle: -.25,
+                      child: Text('KO', style: TextStyle(fontSize: 54,
+                          fontWeight: FontWeight.w900, letterSpacing: 4,
+                          color: shineEmber.withValues(alpha: _seg(t, .3, .42)),
+                          shadows: const [Shadow(color: Colors.black, blurRadius: 10)])))),
+                ])),
+          ))));
+    }
+    kids.add(Positioned.fill(child: Opacity(opacity: pose.opacity.clamp(0.0, 1.0),
+        child: _CardFace(spec: cur, accent: accent,
+            tint: pose.flashColor, tintAlpha: pose.flash))));
+    return Positioned(
+      left: c.dx - cw / 2 + pose.dx, top: c.dy - ch / 2 + pose.dy,
+      width: cw, height: ch,
+      child: Transform.rotate(angle: pose.rot + (side == _left ? .02 : -.02),
+          child: Transform.scale(scale: pose.scale,
+              child: AnimatedBuilder(animation: _amb,
+                  child: Stack(clipBehavior: Clip.none, children: kids),
+                  builder: (context, child) => Transform.translate(
+                      offset: Offset(0, 3 * math.sin(_amb.value * math.pi * 2 + side)),
+                      child: child)))),
     );
   }
 
-  Widget _vsAndLog() => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 10),
-    child: Column(children: [
-      Row(children: [
-        Expanded(child: Container(height: 1, decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [Colors.transparent, shineGold.withValues(alpha: .6)])))),
-        Container(
-            margin: const EdgeInsets.symmetric(horizontal: 12),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
-            decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: shineGold.withValues(alpha: .7)),
-                color: shineGold.withValues(alpha: .1)),
-            child: const Text('VS', style: TextStyle(color: shineGold,
-                fontWeight: FontWeight.w900, letterSpacing: 3))),
-        Expanded(child: Container(height: 1, decoration: BoxDecoration(
-            gradient: LinearGradient(colors: [shineGold.withValues(alpha: .6), Colors.transparent])))),
-      ]),
-      const SizedBox(height: 8),
-      InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: widget.history.isEmpty ? null : _showHistory,
-        child: Padding(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 350),
-                child: Text(widget.state['log'] as String? ?? '',
-                    key: ValueKey(widget.state['log']),
-                    textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12.5, height: 1.4,
-                        color: Colors.white70, fontStyle: FontStyle.italic)))),
-      ),
-    ]),
-  );
+  Widget _bench(int side, bool left) {
+    final team = _team(side);
+    final cards = team['cards'] as List;
+    final active = (team['active'] as num).toInt();
+    final tappable = _planning && !busy && side == activeSide;
+    final accent = side == _left ? shineAzure : shineEmber;
+    return Positioned(top: 8, left: left ? 6 : null, right: left ? null : 6,
+        child: Column(children: [
+          for (var i = 0; i < 3; i++) if (i != active) Builder(builder: (context) {
+            final f = Map<String,dynamic>.from(cards[i] as Map);
+            final sp = characterById(f['id'] as String);
+            final hp = (f['hp'] as num).toInt();
+            final alive = hp > 0;
+            final maxHp = (f['max_hp'] as num?)?.toInt() ?? sp.hp;
+            return Padding(padding: const EdgeInsets.only(bottom: 8),
+                child: GestureDetector(
+                  onTap: tappable && alive ? () => _confirmSwap(i) : null,
+                  child: Opacity(opacity: alive ? 1 : .4, child: Container(
+                    width: 50, height: 70,
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(11),
+                        boxShadow: tappable && alive
+                            ? [BoxShadow(color: shineGold.withValues(alpha: .5), blurRadius: 12)]
+                            : null),
+                    child: Stack(fit: StackFit.expand, children: [
+                      Portrait(sp, radius: 11),
+                      Positioned(left: 4, right: 4, bottom: 4, child: ClipRRect(
+                          borderRadius: BorderRadius.circular(3),
+                          child: LinearProgressIndicator(
+                              value: maxHp == 0 ? 0 : (hp / maxHp).clamp(0.0, 1.0),
+                              minHeight: 4, backgroundColor: Colors.black54,
+                              color: hp / maxHp > .3 ? shineJade : shineEmber))),
+                      if (!alive) const Center(child: Text('KO', style: TextStyle(
+                          color: shineEmber, fontWeight: FontWeight.w900, fontSize: 16))),
+                      if (tappable && alive) Positioned(top: 2, right: 2, child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: const BoxDecoration(color: shineGold, shape: BoxShape.circle),
+                          child: const Icon(Icons.swap_horiz, size: 11, color: Colors.black))),
+                    ]),
+                  )),
+                ));
+          }),
+        ]));
+  }
+
+  // ───────────── Teks mengambang & banner ─────────────
+
+  Widget _float(double t, Offset at, String text, Color color, double size,
+      double a, double b, double rise) {
+    final p = _seg(t, a, b);
+    if (p <= 0 || p >= 1) return const SizedBox.shrink();
+    final op = p < .15 ? p / .15 : 1 - _seg(p, .65, 1);
+    final sc = .6 + .4 * Curves.easeOutBack.transform(_seg(p, 0, .25));
+    return Positioned(left: at.dx - 140, top: at.dy - rise * Curves.easeOut.transform(p) - size,
+        width: 280, child: IgnorePointer(child: Opacity(opacity: op.clamp(0.0, 1.0),
+            child: Transform.scale(scale: sc, child: Center(child: Text(text,
+                textAlign: TextAlign.center, style: TextStyle(fontSize: size,
+                    fontWeight: FontWeight.w900, fontStyle: FontStyle.italic,
+                    letterSpacing: 1.5, color: color, shadows: [
+                      const Shadow(color: Colors.black, blurRadius: 6),
+                      Shadow(color: color.withValues(alpha: .8), blurRadius: 18)])))))));
+  }
+
+  List<Widget> _floats(double t, _Fx e, Offset Function(int) cen, double ch) {
+    final ac = cen(e.actor), tc = cen(e.target);
+    final w = <Widget>[];
+    if (e.attacked) {
+      if (e.damage > 0) {
+        w.add(_float(t, tc.translate(0, -ch * .1), '-${e.damage}', Colors.white,
+            26 + 22 * e.intensity, .24, 1, ch * .35));
+        if (e.absorbed > 0) {
+          w.add(_float(t, tc.translate(0, ch * .22), 'TAMENG -${e.absorbed}',
+              shineAzure, 15, .3, .95, ch * .12));
+        }
+      } else {
+        w.add(_float(t, tc.translate(0, -ch * .05), 'TERTAHAN!', shineAzure, 26, .24, .95, ch * .25));
+      }
+      if (e.defend > 0) w.add(_float(t, ac.translate(0, ch * .3), 'TAMENG ×${e.defend}', shineAzure, 14, .1, .85, ch * .15));
+      if (e.reserveSaved > 0) w.add(_float(t, ac.translate(0, ch * .42), 'PA +${e.reserveSaved}', shineGold, 14, .3, .95, ch * .12));
+    } else if (e.passive) {
+      final label = e.defend > 0 && e.reserveSaved > 0 ? 'BERTAHAN & SIAGA'
+          : e.defend > 0 ? 'BERTAHAN!' : e.reserveSaved > 0 ? 'MENGUMPULKAN PA' : 'BERSIAGA';
+      w.add(_float(t, ac.translate(0, -ch * .15), label,
+          e.defend > 0 ? shineAzure : (e.reserveSaved > 0 ? shineGold : Colors.white),
+          22, .05, .95, ch * .3));
+    } else if (e.timeout) {
+      w.add(_float(t, ac, 'WAKTU HABIS', shineMuted, 24, .05, .95, ch * .25));
+    } else if (e.swap) {
+      w.add(_float(t, ac, 'GANTI TOKOH', shineGold, 24, .4, 1, ch * .25));
+    }
+    if (e.heal > 0) w.add(_float(t, ac.translate(0, -ch * .2), '+${e.heal}', shineJade, 30, .12, .95, ch * .35));
+    if (e.selfDamage > 0) w.add(_float(t, ac.translate(0, ch * .05), '-${e.selfDamage}', shineEmber, 26, .3, 1, ch * .3));
+    return w;
+  }
+
+  Widget _skewBanner({required String text, String? sub, required Color color,
+    required double dx, required double opacity, double fontSize = 26}) =>
+      IgnorePointer(child: Opacity(opacity: opacity.clamp(0.0, 1.0),
+          child: Transform.translate(offset: Offset(dx, 0), child: Transform(
+              transform: Matrix4.skewX(-.22), alignment: Alignment.center,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
+                decoration: BoxDecoration(
+                    gradient: LinearGradient(colors: [
+                      Colors.transparent, color.withValues(alpha: .7),
+                      Color.lerp(color, Colors.black, .5)!.withValues(alpha: .9),
+                      color.withValues(alpha: .7), Colors.transparent]),
+                    border: Border.symmetric(horizontal: BorderSide(
+                        color: Colors.white.withValues(alpha: .6), width: 1.5))),
+                child: Transform(transform: Matrix4.skewX(.22), alignment: Alignment.center,
+                    child: Column(mainAxisSize: MainAxisSize.min, children: [
+                      Text(text, textAlign: TextAlign.center, style: TextStyle(
+                          fontSize: fontSize, fontWeight: FontWeight.w900, letterSpacing: 5,
+                          color: Colors.white, shadows: [Shadow(color: color, blurRadius: 18)])),
+                      if (sub != null) Text(sub, style: const TextStyle(fontSize: 11,
+                          letterSpacing: 3, color: Colors.white70, fontWeight: FontWeight.w700)),
+                    ])),
+              )))));
+
+  Widget _turnBanner(Size s) => Positioned(left: 0, right: 0, top: s.height * .08,
+      child: AnimatedBuilder(animation: _bannerC, builder: (context, _) {
+        if (!_bannerC.isAnimating) return const SizedBox.shrink();
+        final p = _bannerC.value;
+        final inn = 1 - Curves.easeOutCubic.transform(_seg(p, 0, .2));
+        final outt = Curves.easeIn.transform(_seg(p, .78, 1));
+        return _skewBanner(text: _turnLabel, sub: 'GILIRAN $turn', color: _accent,
+            dx: -s.width * 1.1 * inn + s.width * 1.1 * outt,
+            opacity: 1 - outt * .5, fontSize: 28);
+      }));
+
+  // ───────────── Layout ─────────────
+
+  Widget _timerHex() {
+    final has = widget.turnDeadline != null && widget.state['winner'] == null;
+    final frac = (remainingSeconds / _turnTotal).clamp(0.0, 1.0);
+    final urgent = has && remainingSeconds <= 10;
+    final color = urgent ? shineEmber : shineGold;
+    return GestureDetector(
+        onTap: _showMenu,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(width: 54, height: 54, child: Stack(fit: StackFit.expand, children: [
+            Container(decoration: BoxDecoration(shape: BoxShape.circle,
+                color: const Color(0xFF12101C),
+                boxShadow: [BoxShadow(color: color.withValues(alpha: urgent ? .6 : .25), blurRadius: 14)])),
+            if (has) CircularProgressIndicator(value: frac, strokeWidth: 4,
+                backgroundColor: Colors.white12, color: color),
+            Center(child: has
+                ? Text('$remainingSeconds', style: TextStyle(fontWeight: FontWeight.w900,
+                fontSize: 17, color: color))
+                : const Icon(Icons.pause_rounded, color: shineGold)),
+          ])),
+          const SizedBox(height: 2),
+          Text('GILIRAN $turn', style: const TextStyle(fontSize: 9, letterSpacing: 1.5,
+              color: shineMuted, fontWeight: FontWeight.w800)),
+          const Icon(Icons.menu, size: 12, color: shineMuted),
+        ]));
+  }
+
+  Widget _hud() => SizedBox(height: 96, child: Padding(
+      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      child: Row(children: [
+        Expanded(child: _HudPlate(team: _team(_left), mirrored: false, accent: shineAzure,
+            label: _sideLabel(_left),
+            isTurn: widget.state['winner'] == null && activeSide == _left)),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: _timerHex()),
+        Expanded(child: _HudPlate(team: _team(_right), mirrored: true, accent: shineEmber,
+            label: _sideLabel(_right),
+            isTurn: widget.state['winner'] == null && activeSide == _right)),
+      ])));
+
+  Widget _stage(Size s) {
+    var cw = math.min(s.width * .36, 170.0);
+    var ch = cw / .64;
+    if (ch > s.height * .86) { ch = s.height * .86; cw = ch * .64; }
+    final cy = s.height * .53;
+    final lc = Offset(s.width * .30, cy), rc = Offset(s.width * .70, cy);
+    final gap = rc.dx - lc.dx;
+    Offset centerOf(int side) => side == _left ? lc : rc;
+    return AnimatedBuilder(animation: _fxC, builder: (context, _) {
+      final fx = _fxC.isAnimating ? _event : null;
+      final t = fx == null ? 0.0 : _fxC.value;
+      final shAmt = [0.0, 0.0], shAl = [0.0, 0.0], rsAl = [1.0, 1.0];
+      final rs = [0, 0];
+      for (var side = 0; side < 2; side++) {
+        final tm = _team(side);
+        final b = (tm['block'] as num).toInt();
+        shAmt[side] = b.toDouble(); shAl[side] = b > 0 ? 1 : 0;
+        rs[side] = (tm['reserve'] as num).toInt();
+      }
+      if (_planning && !busy) {
+        final a = activeSide;
+        shAmt[a] = defend.toDouble(); shAl[a] = defend > 0 ? .5 : 0;
+        rs[a] = reserve; rsAl[a] = .6;
+      }
+      if (fx != null) {
+        if (fx.defend > 0) shAl[fx.actor] = _seg(t, .12, .5);
+        if (fx.absorbed > 0) {
+          shAmt[fx.target] = fx.oldBlockTarget.toDouble();
+          shAl[fx.target] = 1 - _seg(t, .22, .34);
+        }
+      }
+      final aim = _planning && !busy && fx == null && attack > 0 ? attack / 8 : 0.0;
+      final poses = [_poseFor(_left, t, fx, gap), _poseFor(_right, t, fx, gap)];
+      var shake = Offset.zero;
+      double flashA = 0;
+      if (fx != null && fx.attacked) {
+        final p = _seg(t, .22, .7);
+        if (p > 0 && p < 1) {
+          final amp = (fx.damage > 0 ? 1.0 : .3) * (2 + 8 * fx.intensity) * (1 - p);
+          shake = Offset(math.sin(p * 60) * amp, math.cos(p * 47) * amp * .7);
+        }
+        if (t >= .22) flashA = (1 - _seg(t, .22, .36)) * (.1 + .24 * fx.intensity);
+      }
+      final order = fx != null && fx.actor == _left ? [_right, _left] : [_left, _right];
+      final skillP = fx != null && fx.skill ? _seg(t, 0, .8) : 0.0;
+      return Transform.translate(offset: shake, child: Stack(clipBehavior: Clip.none, children: [
+        Positioned.fill(child: CustomPaint(painter: _FloorPainter(
+            [lc, rc], cw, ch, [shineAzure, shineEmber]))),
+        for (final side in order)
+          _slot(side, centerOf(side), cw, ch, poses[side == _left ? 0 : 1], fx, t),
+        Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _StagePainter(
+            ambA: _amb, fxA: _fxC, fx: fx, leftSide: _left, centers: [lc, rc],
+            cw: cw, ch: ch, shieldAmt: shAmt, shieldAlpha: shAl, reserves: rs,
+            reserveAlpha: rsAl, aim: aim, aimSide: 1 - activeSide,
+            skillAura: _planning && !busy && skill && fx == null, auraSide: activeSide)))),
+        if (fx != null) ..._floats(t, fx, centerOf, ch),
+        if (skillP > 0 && skillP < 1) Positioned(left: 0, right: 0, top: s.height * .36,
+            child: _skewBanner(text: fx!.skillName.toUpperCase(), sub: 'SKILL AKTIF',
+                color: shineViolet,
+                dx: s.width * .9 * (1 - Curves.easeOutCubic.transform(_seg(skillP, 0, .2))),
+                opacity: 1 - _seg(skillP, .7, 1))),
+        if (flashA > 0) Positioned.fill(child: IgnorePointer(
+            child: ColoredBox(color: Colors.white.withValues(alpha: flashA.clamp(0.0, 1.0))))),
+        if (aim > 0) Positioned(left: centerOf(1 - activeSide).dx - 60,
+            top: centerOf(1 - activeSide).dy - ch / 2 - 10, width: 120,
+            child: Center(child: StatPill('~$_previewDamage damage',
+                icon: Icons.flash_on, color: shineEmber))),
+        _bench(_left, true), _bench(_right, false),
+        _turnBanner(s),
+      ]));
+    });
+  }
 
   Widget _pips() {
     final colors = <Color>[
@@ -680,11 +1705,11 @@ class _MatchArenaState extends State<MatchArena> {
       for (var i = 0; i < reserve; i++) shineGold,
       if (skill) for (var i = 0; i < spec.cost; i++) shineViolet,
     ];
-    return Wrap(spacing: 6, runSpacing: 6, children: [
+    return Wrap(spacing: 5, runSpacing: 5, children: [
       for (var i = 0; i < available; i++)
         AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          width: 17, height: 17,
+          width: 14, height: 14,
           decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: i < colors.length ? colors[i] : Colors.transparent,
@@ -695,131 +1720,84 @@ class _MatchArenaState extends State<MatchArena> {
     ]);
   }
 
-  Widget _skillCard(int cd) {
-    final ready = cd == 0;
-    return Opacity(opacity: ready ? 1 : .55, child: AnimatedContainer(
-      duration: const Duration(milliseconds: 200),
-      decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: skill ? shineViolet.withValues(alpha: .16) : Colors.white.withValues(alpha: .04),
-          border: Border.all(color: skill ? shineViolet : Colors.white12, width: skill ? 1.6 : 1)),
-      child: Material(color: Colors.transparent, child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: ready ? () => _toggleSkill(!skill) : null,
-        child: Padding(padding: const EdgeInsets.all(12), child: Row(children: [
-          Icon(Icons.auto_awesome, color: ready ? shineViolet : shineMuted),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(spec.skill, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-            const SizedBox(height: 2),
-            Text(skillText(spec), style: const TextStyle(fontSize: 11.5, color: shineMuted, height: 1.35)),
-            const SizedBox(height: 6),
-            Wrap(spacing: 6, runSpacing: 4, children: [
-              StatPill('${spec.cost} PA', color: shineGold),
-              StatPill('CD ${spec.cooldown}', color: shineGold),
-              if (!ready) StatPill('Cooldown $cd giliran', icon: Icons.hourglass_bottom, color: shineEmber),
-            ]),
-          ])),
-          const SizedBox(width: 8),
-          Icon(skill ? Icons.check_circle : Icons.circle_outlined,
-              color: skill ? shineViolet : Colors.white30),
-        ])),
-      )),
-    ));
-  }
-
-  Widget _swapSection(Map<String,dynamic> me, bool canPlay) {
-    final cards = me['cards'] as List;
-    final active = (me['active'] as num).toInt();
-    final options = [for (var i = 0; i < 3; i++)
-      if (i != active && (cards[i]['hp'] as num).toInt() > 0) i];
-    if (options.isEmpty) return const SizedBox.shrink();
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const SizedBox(height: 18),
-      const Text('GANTI TOKOH • menghabiskan giliran penuh', style: TextStyle(
-          fontSize: 11, color: shineMuted, letterSpacing: 1.2, fontWeight: FontWeight.w800)),
-      const SizedBox(height: 8),
-      Row(children: [
-        for (final i in options) Expanded(child: Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: Opacity(opacity: canPlay ? 1 : .5, child: Material(
-            color: Colors.white.withValues(alpha: .05),
-            borderRadius: BorderRadius.circular(14),
-            child: InkWell(
-              borderRadius: BorderRadius.circular(14),
-              onTap: canPlay ? () => _confirmSwap(i) : null,
-              child: Container(
-                padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: Colors.white12)),
-                child: Row(children: [
-                  Portrait(characterById(cards[i]['id'] as String),
-                      width: 32, height: 46, radius: 8),
-                  const SizedBox(width: 8),
-                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(characterById(cards[i]['id'] as String).name, maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800)),
-                    Text('${cards[i]['hp']} HP', style: const TextStyle(fontSize: 10, color: shineMuted)),
-                  ])),
-                  const Icon(Icons.swap_horiz, size: 16, color: shineGold),
-                ]),
-              ),
-            ),
-          )),
-        )),
-      ]),
-    ]);
-  }
-
-  Widget _actionDock(Map<String,dynamic> me, bool canPlay) {
+  Widget _controls(bool canPlay) {
     final cd = (ownCard['cd'] as num).toInt();
     final issue = _issue;
     final left = available - spent;
-    final showSkillError = issue != null && spent == available;
-    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Row(children: [
-        const Text('POIN AKSI', style: TextStyle(color: shineGold,
-            fontWeight: FontWeight.w900, letterSpacing: 2, fontSize: 12)),
-        const Spacer(),
-        StatPill(left == 0 ? 'Siap' : (left > 0 ? '$left PA tersisa' : '${-left} PA berlebih'),
-            icon: left == 0 ? Icons.check_circle : Icons.pending_outlined,
-            color: left == 0 ? shineJade : shineEmber),
+    final hint = issue ?? (skill ? skillText(spec)
+        : 'Ketuk heksagon untuk menambah PA • tahan untuk mengisi sisa');
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+      decoration: BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [const Color(0xE61A1727), const Color(0xF20E0C16)]),
+          border: Border(top: BorderSide(color: _accent.withValues(alpha: .5))),
+          boxShadow: [BoxShadow(color: _accent.withValues(alpha: .2), blurRadius: 24, offset: const Offset(0, -6))]),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: [
+          Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(color: Colors.black.withValues(alpha: .45),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: (left == 0 ? shineJade : shineGold).withValues(alpha: .7))),
+              child: Row(mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic, children: [
+                    const Text('PA ', style: TextStyle(fontSize: 10, color: shineMuted,
+                        fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+                    Text('$left', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900,
+                        color: left == 0 ? shineJade : (left < 0 ? shineEmber : Colors.white))),
+                    Text(' /$available', style: const TextStyle(fontSize: 14, color: shineMuted)),
+                  ])),
+          const SizedBox(width: 12),
+          Expanded(child: _pips()),
+        ]),
+        const SizedBox(height: 6),
+        AnimatedSwitcher(duration: const Duration(milliseconds: 200),
+            child: Text(hint, key: ValueKey(hint), textAlign: TextAlign.center,
+                maxLines: 2, overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, height: 1.3,
+                    color: issue != null && spent == available ? shineEmber : shineMuted))),
+        const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+          _HexButton(icon: Icons.inventory_2_outlined, color: const Color(0xFFFF9F1C),
+              label: 'CADANGKAN', count: reserve, enabled: canPlay,
+              onTap: () => _add('r'), onLongPress: () => _add('r', fill: true),
+              onMinus: () => setState(() => reserve--)),
+          _HexButton(icon: Icons.shield, color: const Color(0xFF2E7DFF),
+              label: 'BERTAHAN', count: defend, enabled: canPlay,
+              onTap: () => _add('d'), onLongPress: () => _add('d', fill: true),
+              onMinus: () => setState(() => defend--)),
+          _HexButton(icon: Icons.flash_on, color: const Color(0xFFE53545),
+              label: 'SERANG', count: attack, enabled: canPlay,
+              onTap: () => _add('a'), onLongPress: () => _add('a', fill: true),
+              onMinus: () => setState(() => attack--)),
+          _HexButton(icon: Icons.auto_awesome, color: const Color(0xFF8E5BFF),
+              label: spec.skill.toUpperCase(), count: skill ? 1 : 0,
+              badgeText: skill ? '✓' : '${spec.cost}PA', cooldown: cd,
+              enabled: canPlay && cd == 0, onTap: () => _toggleSkill(!skill)),
+        ]),
+        const SizedBox(height: 10),
+        ShineButton(icon: Icons.check_circle_outline, label: 'JALANKAN AKSI', height: 50,
+            onPressed: issue == null && canPlay ? () => submit() : null),
       ]),
-      const SizedBox(height: 4),
-      Text('Tersedia $available PA • cadangan sebelumnya ${own['reserve']}',
-          style: const TextStyle(fontSize: 11, color: shineMuted)),
-      const SizedBox(height: 10),
-      _pips(),
-      const SizedBox(height: 8),
-      _ApRow(label: 'Serang', icon: Icons.bolt, color: shineEmber, value: attack,
-          hint: attack == 0 ? 'Tanpa serangan' : (foeBlock > 0
-              ? 'Perkiraan damage ~$_previewDamage • lawan bertahan $foeBlock'
-              : 'Perkiraan damage ~$_previewDamage'),
-          onMinus: attack > 0 ? () => setState(() => attack--) : null,
-          onPlus: attack < 8 && spent < available ? () => setState(() => attack++) : null),
-      _ApRow(label: 'Bertahan', icon: Icons.shield_outlined, color: shineAzure, value: defend,
-          hint: 'Menyerap serangan di giliran lawan',
-          onMinus: defend > 0 ? () => setState(() => defend--) : null,
-          onPlus: defend < 8 && spent < available ? () => setState(() => defend++) : null),
-      _ApRow(label: 'Cadangkan', icon: Icons.inventory_2_outlined, color: shineGold, value: reserve,
-          hint: 'Dibawa ke giliran berikutnya (maks. 4)',
-          onMinus: reserve > 0 ? () => setState(() => reserve--) : null,
-          onPlus: reserve < 4 && spent < available ? () => setState(() => reserve++) : null),
-      const SizedBox(height: 10),
-      _skillCard(cd),
-      if (showSkillError) Padding(padding: const EdgeInsets.only(top: 8),
-          child: Text(issue, style: const TextStyle(color: shineEmber, fontSize: 12))),
-      if (!showSkillError && issue != null) Padding(padding: const EdgeInsets.only(top: 8),
-          child: Text(issue, style: const TextStyle(color: Colors.white54, fontSize: 12))),
-      const SizedBox(height: 12),
-      ShineButton(icon: Icons.check_circle_outline, label: 'JALANKAN AKSI',
-          onPressed: issue == null && canPlay ? () => submit() : null),
-      _swapSection(me, canPlay),
-    ]);
+    );
   }
 
-  Widget _resultPanel(int w) {
+  Widget _waiting() => Container(
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+      decoration: BoxDecoration(color: const Color(0xE60E0C16),
+          border: Border(top: BorderSide(color: _accent.withValues(alpha: .4)))),
+      child: SafeArea(top: false, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        const SizedBox(width: 18, height: 18,
+            child: CircularProgressIndicator(strokeWidth: 2.2, color: shineGold)),
+        const SizedBox(width: 12),
+        Flexible(child: Text(widget.isBotMatch ? 'Komputer sedang menentukan aksi…'
+            : 'Menunggu giliran atau sinkronisasi lawan…',
+            style: const TextStyle(color: shineMuted, fontSize: 13))),
+      ])));
+
+  Widget _resultOverlay(int w) {
     final won = w == widget.viewerSide;
     final bad = _personal && !won;
     final color = bad ? shineEmber : shineGold;
@@ -827,318 +1805,89 @@ class _MatchArenaState extends State<MatchArena> {
         : 'TIM ${w == 0 ? 'A' : 'B'} MENANG';
     final sub = !_personal ? 'Pertandingan selesai.'
         : (won ? 'Seluruh tokoh lawan telah tumbang.' : 'Seluruh tokohmu tumbang. Coba strategi lain!');
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: .8, end: 1),
-      duration: const Duration(milliseconds: 700),
+    return Positioned.fill(child: TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1), duration: const Duration(milliseconds: 700),
       curve: Curves.elasticOut,
-      builder: (context, v, child) => Opacity(
-          opacity: ((v - .8) * 8).clamp(0.0, 1.0),
-          child: Transform.scale(scale: v, child: child)),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Icon(bad ? Icons.heart_broken : Icons.emoji_events, color: color, size: 46),
-        const SizedBox(height: 6),
+      builder: (context, v, child) => Opacity(opacity: v.clamp(0.0, 1.0),
+          child: Stack(children: [
+            Positioned.fill(child: ColoredBox(color: Colors.black.withValues(alpha: .72))),
+            Positioned.fill(child: CustomPaint(painter: _RaysPainter(_amb, color, !bad))),
+            Center(child: Transform.scale(scale: .8 + .2 * v, child: child)),
+          ])),
+      child: Padding(padding: const EdgeInsets.all(28), child: Column(
+          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Icon(bad ? Icons.heart_broken : Icons.emoji_events, color: color, size: 72, shadows: [
+          Shadow(color: color, blurRadius: 30)]),
+        const SizedBox(height: 8),
         ShaderMask(
             shaderCallback: (r) => LinearGradient(
                 begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Color.lerp(color, Colors.white, .5)!, color]).createShader(r),
+                colors: [Color.lerp(color, Colors.white, .6)!, color]).createShader(r),
             child: Text(title, textAlign: TextAlign.center, style: const TextStyle(
-                fontSize: 34, fontWeight: FontWeight.w900, letterSpacing: 5,
-                color: Colors.white, shadows: [Shadow(color: Colors.black54, blurRadius: 12)]))),
-        const SizedBox(height: 4),
+                fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: 6,
+                color: Colors.white, shadows: [Shadow(color: Colors.black54, blurRadius: 14)]))),
+        const SizedBox(height: 6),
         Text(sub, textAlign: TextAlign.center,
             style: const TextStyle(color: shineMuted, fontSize: 13)),
-        const SizedBox(height: 18),
+        const SizedBox(height: 26),
         if (widget.onReplay != null) ...[
           ShineButton(icon: Icons.replay, label: 'MAIN LAGI', onPressed: widget.onReplay),
           const SizedBox(height: 10),
         ],
         ShineButton(primary: widget.onReplay == null, icon: Icons.home_outlined,
             label: 'KEMBALI KE MENU', onPressed: () => Navigator.of(context).pop()),
-      ]),
-    );
+      ])),
+    ));
   }
-
-  Widget _waiting() => Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-    const SizedBox(width: 18, height: 18,
-        child: CircularProgressIndicator(strokeWidth: 2.2, color: shineGold)),
-    const SizedBox(width: 12),
-    Flexible(child: Text(widget.isBotMatch ? 'Komputer sedang menentukan aksi…'
-        : 'Menunggu giliran atau sinkronisasi lawan…',
-        style: const TextStyle(color: shineMuted, fontSize: 13))),
-  ]);
 
   @override
   Widget build(BuildContext context) {
     final winner = widget.state['winner'];
-    final opponent = Map<String,dynamic>.from(teams[1-widget.viewerSide] as Map);
-    final me = Map<String,dynamic>.from(teams[widget.viewerSide] as Map);
-    final canPlay = widget.canAct && winner==null && !busy;
-    final enemyIdx = 1 - widget.viewerSide;
-
-    final Widget dock;
+    final canPlay = widget.canAct && winner == null && !busy;
+    final Widget bottom;
     if (winner != null) {
-      dock = _resultPanel((winner as num).toInt());
+      bottom = const SizedBox(height: 8);
     } else if (!widget.canAct) {
-      dock = _waiting();
+      bottom = _waiting();
     } else {
-      dock = _actionDock(me, canPlay);
+      bottom = SafeArea(top: false, child: _controls(canPlay));
     }
-
     return ShineScaffold(
       accent: _accent,
-      appBar: AppBar(title: Text(widget.title), actions: [
-        if (widget.onExit != null)
-          IconButton(tooltip:'Beranda tanpa mengakhiri pertandingan',
-              icon: const Icon(Icons.home_outlined), onPressed: widget.onExit),
-        if (widget.history.isNotEmpty)
-          IconButton(tooltip: 'Riwayat pertarungan', onPressed: _showHistory,
-              icon: const Icon(Icons.history)),
-        if (widget.onSurrender != null || widget.onDisband != null || widget.onStopLocal != null)
-          PopupMenuButton<String>(tooltip: 'Opsi pertandingan',
-              onSelected: (choice) {
-                if (choice == 'surrender') widget.onSurrender?.call();
-                if (choice == 'disband') widget.onDisband?.call();
-                if (choice == 'stop') widget.onStopLocal?.call();
-              },
-              itemBuilder: (_) => [
-                if (widget.onSurrender != null)
-                  const PopupMenuItem(value:'surrender', child: Text('Menyerah (lawan menang)')),
-                if (widget.onDisband != null)
-                  const PopupMenuItem(value:'disband', child: Text('Bubarkan ruang (host)')),
-                if (widget.onStopLocal != null)
-                  const PopupMenuItem(value:'stop', child: Text('Hentikan pertandingan lokal')),
-              ]),
-      ]),
-      body: SafeArea(child: Column(children: [
-        Expanded(child: ListView(padding: const EdgeInsets.fromLTRB(14, 4, 14, 12), children: [
-          _turnBanner(),
-          const SizedBox(height: 12),
-          _FighterPanel(key: ValueKey('team-$enemyIdx'),
-              label: 'TIM ${enemyIdx==0?'A':'B'} • ${widget.isBotMatch?'KOMPUTER':'LAWAN'}',
-              team: opponent, enemy: true,
-              isTurn: winner == null && activeSide == enemyIdx),
-          _vsAndLog(),
-          _FighterPanel(key: ValueKey('team-${widget.viewerSide}'),
-              label: 'TIM ${widget.viewerSide==0?'A':'B'} • ${widget.isBotMatch?'KAMU':'PEMAIN'}',
-              team: me, enemy: false,
-              isTurn: winner == null && activeSide == widget.viewerSide),
+      body: Stack(children: [
+        Positioned.fill(child: CustomPaint(painter: _ScenePainter(_amb, _accent))),
+        SafeArea(bottom: false, child: Column(children: [
+          _hud(),
+          Expanded(child: LayoutBuilder(builder: (context, box) => _stage(box.biggest))),
+          if (winner == null) bottom else const SizedBox(height: 8),
         ])),
-        Container(
-          decoration: BoxDecoration(
-              gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                  colors: [Color(0xFF1A1727), Color(0xFF110F1B)]),
-              border: Border(top: BorderSide(color: _accent.withValues(alpha: .45))),
-              boxShadow: [BoxShadow(color: _accent.withValues(alpha: .18),
-                  blurRadius: 24, offset: const Offset(0, -6))]),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * .52),
-            child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                child: AnimatedSize(duration: const Duration(milliseconds: 250), child: dock)),
-          ),
-        ),
-      ])),
+        if (winner != null && _resultReady) _resultOverlay((winner as num).toInt()),
+      ]),
     );
   }
 }
 
-// ───────────── Komponen pertarungan ─────────────
-
-class _RoundBtn extends StatelessWidget {
-  const _RoundBtn(this.icon, this.color, this.onTap);
-  final IconData icon;
+class _RaysPainter extends CustomPainter {
+  _RaysPainter(this.amb, this.color, this.rays) : super(repaint: amb);
+  final Animation<double> amb;
   final Color color;
-  final VoidCallback? onTap;
+  final bool rays;
   @override
-  Widget build(BuildContext context) => Material(
-    color: onTap == null ? Colors.white.withValues(alpha: .05) : color.withValues(alpha: .2),
-    shape: const CircleBorder(),
-    child: InkWell(customBorder: const CircleBorder(), onTap: onTap,
-        child: SizedBox(width: 38, height: 38,
-            child: Icon(icon, size: 20, color: onTap == null ? Colors.white24 : color))),
-  );
-}
-
-class _ApRow extends StatelessWidget {
-  const _ApRow({required this.label, required this.hint, required this.icon,
-    required this.color, required this.value, this.onMinus, this.onPlus});
-  final String label, hint;
-  final IconData icon;
-  final Color color;
-  final int value;
-  final VoidCallback? onMinus, onPlus;
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 5),
-    child: Row(children: [
-      Container(width: 40, height: 40,
-          decoration: BoxDecoration(shape: BoxShape.circle,
-              color: color.withValues(alpha: .15),
-              border: Border.all(color: color.withValues(alpha: .5))),
-          child: Icon(icon, size: 20, color: color)),
-      const SizedBox(width: 12),
-      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(label, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 14)),
-        Text(hint, maxLines: 2, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: shineMuted)),
-      ])),
-      _RoundBtn(Icons.remove, color, onMinus),
-      SizedBox(width: 34, child: Text('$value', textAlign: TextAlign.center,
-          style: TextStyle(fontWeight: FontWeight.w900, fontSize: 22, color: color))),
-      _RoundBtn(Icons.add, color, onPlus),
-    ]),
-  );
-}
-
-/// Panel tokoh aktif satu tim, dengan efek getar/kilat saat HP berubah.
-class _FighterPanel extends StatefulWidget {
-  const _FighterPanel({super.key, required this.label, required this.team,
-    required this.enemy, required this.isTurn});
-  final String label;
-  final Map<String,dynamic> team;
-  final bool enemy, isTurn;
-  @override
-  State<_FighterPanel> createState() => _FighterPanelState();
-}
-
-class _FighterPanelState extends State<_FighterPanel>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _fx = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 800));
-  int _delta = 0;
-
-  static int _active(Map<String,dynamic> team) => (team['active'] as num).toInt();
-  static int _hpAt(Map<String,dynamic> team, int i) =>
-      ((team['cards'] as List)[i] as Map)['hp'] is num
-          ? (((team['cards'] as List)[i] as Map)['hp'] as num).toInt() : 0;
-
-  @override
-  void didUpdateWidget(covariant _FighterPanel old) {
-    super.didUpdateWidget(old);
-    final idx = _active(old.team);
-    final d = _hpAt(widget.team, idx) - _hpAt(old.team, idx);
-    if (d != 0) {
-      _delta = d;
-      _fx.forward(from: 0);
-      if (d < 0) HapticFeedback.lightImpact();
+  void paint(Canvas canvas, Size size) {
+    final c = Offset(size.width / 2, size.height * .38);
+    canvas.drawCircle(c, size.width * .8, Paint()..shader = RadialGradient(
+        colors: [color.withValues(alpha: .3), Colors.transparent])
+        .createShader(Rect.fromCircle(center: c, radius: size.width * .8)));
+    if (!rays) return;
+    for (var i = 0; i < 14; i++) {
+      final a = amb.value * math.pi * 2 / 3 + i * math.pi * 2 / 14;
+      final p = Path()..moveTo(c.dx, c.dy)
+        ..lineTo(c.dx + math.cos(a - .05) * size.height, c.dy + math.sin(a - .05) * size.height)
+        ..lineTo(c.dx + math.cos(a + .05) * size.height, c.dy + math.sin(a + .05) * size.height)
+        ..close();
+      canvas.drawPath(p, Paint()..color = color.withValues(alpha: .07));
     }
   }
-
   @override
-  void dispose() { _fx.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    final team = widget.team;
-    final cards = team['cards'] as List;
-    final active = _active(team);
-    final unit = Map<String,dynamic>.from(cards[active] as Map);
-    final spec = characterById(unit['id'] as String);
-    final hp = (unit['hp'] as num).toInt();
-    final maxHp = (unit['max_hp'] as num).toInt();
-    final cd = (unit['cd'] as num).toInt();
-    final reserve = (team['reserve'] as num).toInt();
-    final block = (team['block'] as num).toInt();
-    final accent = widget.enemy ? shineEmber : shineAzure;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [Color.alphaBlend(accent.withValues(alpha: .16), const Color(0xFF262136)),
-                const Color(0xFF181525)]),
-          border: Border.all(color: accent.withValues(alpha: widget.isTurn ? .9 : .25),
-              width: widget.isTurn ? 1.8 : 1),
-          boxShadow: [
-            if (widget.isTurn) BoxShadow(color: accent.withValues(alpha: .35),
-                blurRadius: 26, spreadRadius: -2),
-            BoxShadow(color: Colors.black.withValues(alpha: .35),
-                blurRadius: 14, offset: const Offset(0, 8)),
-          ]),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text(widget.label, style: TextStyle(color: accent,
-              fontSize: 11, letterSpacing: 1.6, fontWeight: FontWeight.w900))),
-          if (widget.isTurn) StatPill('BERAKSI', icon: Icons.bolt, color: accent),
-        ]),
-        const SizedBox(height: 10),
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          AnimatedBuilder(animation: _fx, builder: (context, _) {
-            final t = _fx.value;
-            final hit = _delta < 0;
-            final shake = hit ? math.sin(t * math.pi * 7) * (1 - t) * 7 : 0.0;
-            final running = t > 0 && t < 1;
-            return Transform.translate(offset: Offset(shake, 0),
-                child: SizedBox(width: 96, height: 128, child: Stack(fit: StackFit.expand, children: [
-                  Portrait(spec, radius: 14),
-                  if (running) Positioned.fill(child: IgnorePointer(child: DecoratedBox(
-                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(14),
-                          color: (hit ? shineEmber : shineJade).withValues(alpha: (1 - t) * .5))))),
-                  if (running) Center(child: Opacity(opacity: (1 - t).clamp(0.0, 1.0),
-                      child: Transform.translate(offset: Offset(0, -30 * t),
-                          child: Text(_delta > 0 ? '+$_delta' : '$_delta', style: const TextStyle(
-                              fontSize: 24, fontWeight: FontWeight.w900, color: Colors.white,
-                              shadows: [Shadow(color: Colors.black, blurRadius: 8),
-                                Shadow(color: Colors.black, blurRadius: 3)]))))),
-                ])));
-          }),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(spec.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 8),
-            HpBar(hp: hp, maxHp: maxHp),
-            const SizedBox(height: 10),
-            Wrap(spacing: 6, runSpacing: 6, children: [
-              StatPill('ATK ${spec.attack}', icon: Icons.bolt, color: shineEmber),
-              StatPill('PA simpan $reserve', icon: Icons.inventory_2_outlined, color: shineGold),
-              StatPill('Tameng $block', icon: Icons.shield_outlined, color: shineAzure),
-              cd > 0
-                  ? StatPill('CD $cd', icon: Icons.hourglass_bottom)
-                  : const StatPill('Skill siap', icon: Icons.auto_awesome, color: shineViolet),
-            ]),
-            const SizedBox(height: 6),
-            Text(spec.skill, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: shineMuted)),
-          ])),
-        ]),
-        const SizedBox(height: 10),
-        Row(children: [for (var i = 0; i < 3; i++) Expanded(child: Padding(
-            padding: EdgeInsets.only(right: i == 2 ? 0 : 6),
-            child: _bench(Map<String,dynamic>.from(cards[i] as Map), active == i, accent))),
-        ]),
-      ]),
-    );
-  }
-
-  Widget _bench(Map<String,dynamic> fighter, bool active, Color accent) {
-    final spec = characterById(fighter['id'] as String);
-    final hp = (fighter['hp'] as num).toInt();
-    final alive = hp > 0;
-    final maxHp = (fighter['max_hp'] as num?)?.toInt() ?? spec.hp;
-    return Opacity(opacity: alive ? 1 : .4, child: Container(
-      padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-          color: active ? accent.withValues(alpha: .16) : Colors.white.withValues(alpha: .04),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: active ? accent : Colors.white12)),
-      child: Row(children: [
-        Portrait(spec, width: 28, height: 40, radius: 7, border: false),
-        const SizedBox(width: 6),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(spec.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 4),
-          ClipRRect(borderRadius: BorderRadius.circular(3), child: LinearProgressIndicator(
-              value: maxHp == 0 ? 0 : (hp / maxHp).clamp(0.0, 1.0), minHeight: 4,
-              backgroundColor: Colors.white12,
-              color: hp / maxHp > .3 ? shineJade : shineEmber)),
-          const SizedBox(height: 2),
-          Text(alive ? '$hp HP' : 'KO', style: const TextStyle(fontSize: 9, color: shineMuted)),
-        ])),
-      ]),
-    ));
-  }
+  bool shouldRepaint(covariant _RaysPainter old) => old.color != color;
 }

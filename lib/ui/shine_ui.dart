@@ -309,9 +309,10 @@ class Portrait extends StatelessWidget {
 }
 
 class HpBar extends StatelessWidget {
-  const HpBar({super.key, required this.hp, required this.maxHp, this.height = 16});
+  const HpBar({super.key, required this.hp, required this.maxHp, this.height = 16, this.showText = true});
   final int hp, maxHp;
   final double height;
+  final bool showText;
 
   @override
   Widget build(BuildContext context) {
@@ -337,7 +338,7 @@ class HpBar extends StatelessWidget {
                 child: DecoratedBox(decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [c.withValues(alpha: .75), c]))),
               ),
-              Center(child: Text('$hp / $maxHp', style: const TextStyle(
+              if (showText) Center(child: Text('$hp / $maxHp', style: const TextStyle(
                   fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white,
                   shadows: [Shadow(color: Colors.black, blurRadius: 3)]))),
             ]),
