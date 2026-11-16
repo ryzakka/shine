@@ -4,15 +4,15 @@ import '../data/characters.dart';
 
 // ───────────── Design tokens ─────────────
 const shineGold = Color(0xFFEFC483);
-const shineGoldLight = Color(0xFFFFE2A8);
-const shineGoldDeep = Color(0xFFC99643);
-const shineMuted = Color(0xFFAAA5BE);
-const shineInk = Color(0xFF10101B);
-const shinePanel = Color(0xFF1B1828);
-const shineEmber = Color(0xFFFF5A64); // lawan / serang / bahaya
-const shineAzure = Color(0xFF5CC8FF); // pemain / bertahan
-const shineJade = Color(0xFF59E0A0); // siap / pulih
-const shineViolet = Color(0xFFB48CFF); // skill
+const shineGoldLight = Color(0xFFFFE5B4);
+const shineGoldDeep = Color(0xFFC48B37);
+const shineMuted = Color(0xFF9E99B3);
+const shineInk = Color(0xFF0B0A12);
+const shinePanel = Color(0xFF161322);
+const shineEmber = Color(0xFFFF4D5E); // lawan / serang / bahaya
+const shineAzure = Color(0xFF47B8FF); // pemain / bertahan
+const shineJade = Color(0xFF45E09B); // siap / pulih
+const shineViolet = Color(0xFFB580FF); // skill
 
 String skillKindLabel(String kind) => switch (kind) {
   'damage' => 'Damage bonus',
@@ -58,21 +58,19 @@ String skillText(CharacterSpec s) {
 
 // ───────────── Responsif & transisi ─────────────
 
-/// Tata letak lebar (desktop, tablet, ponsel landscape) memakai dua kolom.
 bool shineIsWide(Size s) =>
-    s.width >= 900 || (s.width >= 640 && s.width > s.height * 1.25);
+    s.width >= 880 || (s.width >= 640 && s.width > s.height * 1.22);
 
-/// Transisi halaman seragam: memudar sambil naik sedikit.
 Route<T> shineRoute<T>(Widget page) => PageRouteBuilder<T>(
-  transitionDuration: const Duration(milliseconds: 420),
-  reverseTransitionDuration: const Duration(milliseconds: 260),
+  transitionDuration: const Duration(milliseconds: 380),
+  reverseTransitionDuration: const Duration(milliseconds: 240),
   pageBuilder: (_, __, ___) => page,
   transitionsBuilder: (context, anim, secondary, child) {
     final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
     return FadeTransition(
       opacity: curved,
       child: SlideTransition(
-        position: Tween<Offset>(begin: const Offset(0, .04), end: Offset.zero)
+        position: Tween<Offset>(begin: const Offset(0, .03), end: Offset.zero)
             .animate(curved),
         child: child,
       ),
@@ -82,9 +80,8 @@ Route<T> shineRoute<T>(Widget page) => PageRouteBuilder<T>(
 
 double _fr(double v) => v - v.floorToDouble();
 
-// ───────────── Layout ─────────────
+// ───────────── Layout & Atmosfer ─────────────
 
-/// Latar dramatis: gradasi gelap dengan cahaya aksen di bagian atas.
 class ShineBackdrop extends StatelessWidget {
   const ShineBackdrop({super.key, this.accent = shineGold});
   final Color accent;
@@ -95,42 +92,51 @@ class ShineBackdrop extends StatelessWidget {
       gradient: LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [Color(0xFF1A1530), shineInk, Color(0xFF08080F)],
+        colors: [Color(0xFF17122B), shineInk, Color(0xFF06050A)],
+        stops: [0.0, 0.55, 1.0],
       ),
     ),
     child: TweenAnimationBuilder<Color?>(
       tween: ColorTween(end: accent),
-      duration: const Duration(milliseconds: 600),
-      builder: (context, color, _) => Stack(children: [
-        Positioned(
-          top: -150, left: -80, right: -80, height: 420,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(colors: [
-                (color ?? accent).withValues(alpha: .22),
-                Colors.transparent,
-              ]),
+      duration: const Duration(milliseconds: 650),
+      builder: (context, color, _) {
+        final activeColor = color ?? accent;
+        return Stack(children: [
+          Positioned(
+            top: -180, left: -100, right: -100, height: 480,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  radius: 0.85,
+                  colors: [
+                    activeColor.withValues(alpha: .20),
+                    activeColor.withValues(alpha: .04),
+                    Colors.transparent,
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                ),
+              ),
             ),
           ),
-        ),
-        Positioned(
-          bottom: -200, left: -120, right: -120, height: 420,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: RadialGradient(colors: [
-                shineViolet.withValues(alpha: .10),
-                Colors.transparent,
-              ]),
+          Positioned(
+            bottom: -220, left: -120, right: -120, height: 440,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [
+                    shineViolet.withValues(alpha: .09),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
             ),
           ),
-        ),
-      ]),
+        ]);
+      },
     ),
   );
 }
 
-/// Scaffold transparan di atas [ShineBackdrop] agar AppBar menyatu dengan latar.
-/// [embers] menambahkan percikan cahaya yang naik perlahan (beranda & menu).
 class ShineScaffold extends StatelessWidget {
   const ShineScaffold({super.key, required this.body, this.appBar,
     this.accent = shineGold, this.embers = false});
@@ -141,15 +147,14 @@ class ShineScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Stack(children: [
-    Positioned.fill(child: ShineBackdrop(accent: accent)),
+    Positioned.fill(child: RepaintBoundary(child: ShineBackdrop(accent: accent))),
     if (embers) const Positioned.fill(child: IgnorePointer(child: ShineEmbers())),
     Scaffold(backgroundColor: Colors.transparent, appBar: appBar, body: body),
   ]);
 }
 
-/// Percikan emas yang naik perlahan. Berhenti bila animasi dimatikan sistem.
 class ShineEmbers extends StatefulWidget {
-  const ShineEmbers({super.key, this.color = shineGold, this.count = 34});
+  const ShineEmbers({super.key, this.color = shineGold, this.count = 30});
   final Color color;
   final int count;
   @override
@@ -159,7 +164,7 @@ class ShineEmbers extends StatefulWidget {
 class _ShineEmbersState extends State<ShineEmbers>
     with SingleTickerProviderStateMixin {
   late final AnimationController _c =
-      AnimationController(vsync: this, duration: const Duration(seconds: 24));
+  AnimationController(vsync: this, duration: const Duration(seconds: 26));
   bool _started = false;
 
   @override
@@ -200,12 +205,12 @@ class _EmberPainter extends CustomPainter {
       final speed = 1 + (i % 4);
       final prog = (_fr(i * .7549) + t.value * speed) % 1.0;
       final x = _fr(i * .6180339) * size.width +
-          math.sin(t.value * math.pi * 2 * speed + i) * 14;
+          math.sin(t.value * math.pi * 2 * speed + i) * 16;
       final y = size.height * (1 - prog);
-      final r = .8 + 1.8 * _fr(i * .37);
-      final a = math.sin(prog * math.pi) * (.16 + .34 * _fr(i * .91));
-      paint.color = color.withValues(alpha: a * .22);
-      canvas.drawCircle(Offset(x, y), r * 3.2, paint);
+      final r = .7 + 1.6 * _fr(i * .37);
+      final a = math.sin(prog * math.pi) * (.14 + .32 * _fr(i * .91));
+      paint.color = color.withValues(alpha: a * .20);
+      canvas.drawCircle(Offset(x, y), r * 3.4, paint);
       paint.color = color.withValues(alpha: a);
       canvas.drawCircle(Offset(x, y), r, paint);
     }
@@ -216,7 +221,6 @@ class _EmberPainter extends CustomPainter {
       old.color != color || old.count != count;
 }
 
-/// Logo SHINE dengan kilau emas yang menyapu huruf secara berkala.
 class ShineWordmark extends StatefulWidget {
   const ShineWordmark({super.key, this.size = 58});
   final double size;
@@ -249,37 +253,38 @@ class _ShineWordmarkState extends State<ShineWordmark>
 
   @override
   Widget build(BuildContext context) {
-    final spacing = widget.size * .2;
-    return AnimatedBuilder(
-      animation: _c,
-      builder: (context, _) {
-        final p = Curves.easeInOut.transform(_c.value);
-        return Padding(
-          padding: EdgeInsets.only(left: spacing),
-          child: ShaderMask(
-            blendMode: BlendMode.srcIn,
-            shaderCallback: (r) => LinearGradient(
-              begin: Alignment(-3.2 + 5.4 * p, -.4),
-              end: Alignment(-1.2 + 5.4 * p, .4),
-              colors: const [shineGold, shineGoldLight, Colors.white,
-                shineGoldLight, shineGold],
-              stops: const [0, .3, .5, .7, 1],
-            ).createShader(r),
-            child: Text('SHINE', style: TextStyle(
-              fontSize: widget.size, fontWeight: FontWeight.w900,
-              letterSpacing: spacing, height: 1, color: Colors.white,
-              shadows: [Shadow(
-                  color: shineGold.withValues(alpha: .6),
-                  blurRadius: widget.size * .5)],
-            )),
-          ),
-        );
-      },
+    final spacing = widget.size * .22;
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _c,
+        builder: (context, _) {
+          final p = Curves.easeInOut.transform(_c.value);
+          return Padding(
+            padding: EdgeInsets.only(left: spacing),
+            child: ShaderMask(
+              blendMode: BlendMode.srcIn,
+              shaderCallback: (r) => LinearGradient(
+                begin: Alignment(-3.2 + 5.4 * p, -.4),
+                end: Alignment(-1.2 + 5.4 * p, .4),
+                colors: const [shineGold, shineGoldLight, Colors.white,
+                  shineGoldLight, shineGold],
+                stops: const [0, .3, .5, .7, 1],
+              ).createShader(r),
+              child: Text('SHINE', style: TextStyle(
+                fontSize: widget.size, fontWeight: FontWeight.w900,
+                letterSpacing: spacing, height: 1, color: Colors.white,
+                shadows: [Shadow(
+                    color: shineGold.withValues(alpha: .55),
+                    blurRadius: widget.size * .45)],
+              )),
+            ),
+          );
+        },
+      ),
     );
   }
 }
 
-/// Muncul perlahan dari bawah; [index] memberi jeda antar-bagian.
 class Reveal extends StatelessWidget {
   const Reveal({super.key, required this.child, this.index = 0});
   final Widget child;
@@ -288,47 +293,50 @@ class Reveal extends StatelessWidget {
   @override
   Widget build(BuildContext context) => TweenAnimationBuilder<double>(
     tween: Tween(begin: 0, end: 1),
-    duration: Duration(milliseconds: 450 + index * 90),
+    duration: Duration(milliseconds: 400 + index * 75),
     curve: Curves.easeOutCubic,
     builder: (context, v, c) => Opacity(
       opacity: v.clamp(0.0, 1.0),
-      child: Transform.translate(offset: Offset(0, 22 * (1 - v)), child: c),
+      child: Transform.translate(offset: Offset(0, 18 * (1 - v)), child: c),
     ),
     child: child,
   );
 }
 
 class SectionLabel extends StatelessWidget {
-  const SectionLabel(this.text, {super.key, this.trailing});
+  const SectionLabel(this.text, {super.key, this.trailing, this.top = 24});
   final String text;
   final Widget? trailing;
+  final double top;
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(top: 26, bottom: 12),
+    padding: EdgeInsets.only(top: top, bottom: 10),
     child: Row(children: [
       Container(
-        width: 3, height: 13,
+        width: 3, height: 12,
         decoration: BoxDecoration(
-            color: shineGold, borderRadius: BorderRadius.circular(2)),
+            color: shineGold, borderRadius: BorderRadius.circular(2),
+            boxShadow: [BoxShadow(color: shineGold.withValues(alpha: .6), blurRadius: 6)]),
       ),
       const SizedBox(width: 8),
       Text(text, style: const TextStyle(color: shineGold,
-          fontWeight: FontWeight.w900, letterSpacing: 2.2, fontSize: 11)),
+          fontWeight: FontWeight.w900, letterSpacing: 2.4, fontSize: 10.5)),
       Expanded(child: Container(
         height: 1, margin: const EdgeInsets.only(left: 12),
         decoration: BoxDecoration(gradient: LinearGradient(colors: [
-          shineGold.withValues(alpha: .35), Colors.transparent])),
+          shineGold.withValues(alpha: .28), Colors.transparent])),
       )),
       if (trailing != null) ...[const SizedBox(width: 10), trailing!],
     ]),
   );
 }
 
+/// Permukaan halus hanya untuk elemen interaktif yang benar-benar butuh batas.
 class ShinePanel extends StatelessWidget {
   const ShinePanel({super.key, required this.child,
     this.padding = const EdgeInsets.all(16), this.glow, this.borderColor,
-    this.radius = 20, this.onTap, this.tint});
+    this.radius = 18, this.onTap, this.tint});
   final Widget child;
   final EdgeInsets padding;
   final Color? glow, borderColor, tint;
@@ -345,17 +353,15 @@ class ShinePanel extends StatelessWidget {
           begin: Alignment.topLeft, end: Alignment.bottomRight,
           colors: [
             tint != null
-                ? Color.alphaBlend(tint!.withValues(alpha: .14), const Color(0xFF262136))
-                : const Color(0xFF262136),
-            const Color(0xFF181525),
+                ? Color.alphaBlend(tint!.withValues(alpha: .12), const Color(0xCC211C30))
+                : const Color(0xCC211C30),
+            const Color(0xCC120F1D),
           ],
         ),
-        border: Border.all(color: borderColor ?? Colors.white.withValues(alpha: .08)),
+        border: Border.all(color: borderColor ?? Colors.white.withValues(alpha: .07)),
         boxShadow: [
           if (glow != null)
-            BoxShadow(color: glow!.withValues(alpha: .28), blurRadius: 26, spreadRadius: -4),
-          BoxShadow(color: Colors.black.withValues(alpha: .35),
-              blurRadius: 16, offset: const Offset(0, 8)),
+            BoxShadow(color: glow!.withValues(alpha: .22), blurRadius: 24, spreadRadius: -6),
         ],
       ),
       child: Material(
@@ -371,7 +377,7 @@ class ShinePanel extends StatelessWidget {
 
 class ShineButton extends StatelessWidget {
   const ShineButton({super.key, required this.label, required this.onPressed,
-    this.icon, this.subtitle, this.primary = true, this.height = 56});
+    this.icon, this.subtitle, this.primary = true, this.height = 54});
   final String label;
   final String? subtitle;
   final IconData? icon;
@@ -382,11 +388,11 @@ class ShineButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final enabled = onPressed != null;
-    final fg = primary ? const Color(0xFF241A08) : shineGold;
-    final r = BorderRadius.circular(16);
+    final fg = primary ? const Color(0xFF1F1505) : shineGold;
+    final r = BorderRadius.circular(14);
     return AnimatedOpacity(
-      duration: const Duration(milliseconds: 200),
-      opacity: enabled ? 1 : .42,
+      duration: const Duration(milliseconds: 180),
+      opacity: enabled ? 1 : .38,
       child: Container(
         decoration: BoxDecoration(
           borderRadius: r,
@@ -394,11 +400,11 @@ class ShineButton extends StatelessWidget {
               ? const LinearGradient(colors: [shineGoldLight, shineGold, shineGoldDeep],
               begin: Alignment.topCenter, end: Alignment.bottomCenter)
               : null,
-          color: primary ? null : Colors.white.withValues(alpha: .05),
-          border: primary ? null : Border.all(color: shineGold.withValues(alpha: .5)),
+          color: primary ? null : Colors.white.withValues(alpha: .04),
+          border: primary ? null : Border.all(color: shineGold.withValues(alpha: .42)),
           boxShadow: primary && enabled
-              ? [BoxShadow(color: shineGold.withValues(alpha: .38),
-              blurRadius: 24, offset: const Offset(0, 6))]
+              ? [BoxShadow(color: shineGold.withValues(alpha: .32),
+              blurRadius: 20, spreadRadius: -2, offset: const Offset(0, 4))]
               : null,
         ),
         child: Material(
@@ -407,16 +413,16 @@ class ShineButton extends StatelessWidget {
             borderRadius: r, onTap: onPressed,
             child: Container(
               constraints: BoxConstraints(minHeight: height),
-              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
               child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                if (icon != null) ...[Icon(icon, color: fg, size: 22), const SizedBox(width: 10)],
+                if (icon != null) ...[Icon(icon, color: fg, size: 21), const SizedBox(width: 9)],
                 Flexible(child: Column(mainAxisSize: MainAxisSize.min, children: [
                   Text(label, textAlign: TextAlign.center, style: TextStyle(
                       color: fg, fontWeight: FontWeight.w900,
-                      letterSpacing: 1.3, fontSize: 14)),
+                      letterSpacing: 1.4, fontSize: 13.5)),
                   if (subtitle != null)
                     Text(subtitle!, textAlign: TextAlign.center, style: TextStyle(
-                        color: fg.withValues(alpha: .75), fontSize: 11)),
+                        color: fg.withValues(alpha: .75), fontSize: 10.5)),
                 ])),
               ]),
             ),
@@ -435,30 +441,32 @@ class StatPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3.5),
     decoration: BoxDecoration(
-      color: color.withValues(alpha: .14),
+      color: color.withValues(alpha: .12),
       borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withValues(alpha: .38)),
+      border: Border.all(color: color.withValues(alpha: .32)),
     ),
     child: Row(mainAxisSize: MainAxisSize.min, children: [
       if (icon != null) ...[Icon(icon, size: 12, color: color), const SizedBox(width: 4)],
       Text(text, style: TextStyle(
-          color: color, fontSize: 11, fontWeight: FontWeight.w700)),
+          color: color, fontSize: 10.5, fontWeight: FontWeight.w800, letterSpacing: .4)),
     ]),
   );
 }
 
-// ───────────── Karakter ─────────────
+// ───────────── Karakter & Bar HP Dramatis ─────────────
 
 class Portrait extends StatelessWidget {
   const Portrait(this.spec, {super.key, this.width, this.height,
-    this.radius = 12, this.border = true, this.fit = BoxFit.cover});
+    this.radius = 12, this.border = true, this.fit = BoxFit.cover,
+    this.borderColor});
   final CharacterSpec spec;
   final double? width, height;
   final double radius;
   final bool border;
   final BoxFit fit;
+  final Color? borderColor;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -466,14 +474,14 @@ class Portrait extends StatelessWidget {
     decoration: BoxDecoration(
       borderRadius: BorderRadius.circular(radius),
       border: border
-          ? Border.all(color: shineGold.withValues(alpha: .8), width: 1.4)
+          ? Border.all(color: (borderColor ?? shineGold).withValues(alpha: .75), width: 1.3)
           : null,
     ),
     child: ClipRRect(
-      borderRadius: BorderRadius.circular(radius > 1.4 ? radius - 1.4 : radius),
+      borderRadius: BorderRadius.circular(radius > 1.3 ? radius - 1.3 : radius),
       child: Image.asset(spec.asset, fit: fit, alignment: Alignment.topCenter,
           errorBuilder: (_, __, ___) => Container(
-            color: const Color(0xFF2A2438), alignment: Alignment.center,
+            color: const Color(0xFF231E30), alignment: Alignment.center,
             child: Text(spec.name.substring(0, 1), style: const TextStyle(
                 color: shineGold, fontWeight: FontWeight.w900, fontSize: 22)),
           )),
@@ -482,39 +490,55 @@ class Portrait extends StatelessWidget {
 }
 
 class HpBar extends StatelessWidget {
-  const HpBar({super.key, required this.hp, required this.maxHp, this.height = 16, this.showText = true});
+  const HpBar({super.key, required this.hp, required this.maxHp,
+    this.height = 10, this.showText = false, this.mirrored = false});
   final int hp, maxHp;
   final double height;
   final bool showText;
+  final bool mirrored;
 
   @override
   Widget build(BuildContext context) {
     final f = maxHp == 0 ? 0.0 : (hp / maxHp).clamp(0.0, 1.0);
     return TweenAnimationBuilder<double>(
       tween: Tween(end: f),
-      duration: const Duration(milliseconds: 750),
+      duration: const Duration(milliseconds: 550),
       curve: Curves.easeOutCubic,
       builder: (context, v, _) {
         final c = v > .5 ? shineJade : (v > .25 ? const Color(0xFFFFB84D) : shineEmber);
-        return Container(
-          height: height,
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: .45),
-            borderRadius: BorderRadius.circular(height),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(height),
-            child: Stack(children: [
-              FractionallySizedBox(
-                widthFactor: v.clamp(0.0, 1.0),
-                child: DecoratedBox(decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [c.withValues(alpha: .75), c]))),
-              ),
-              if (showText) Center(child: Text('$hp / $maxHp', style: const TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 3)]))),
-            ]),
+        return Transform(
+          transform: Matrix4.skewX(mirrored ? .22 : -.22),
+          alignment: Alignment.center,
+          child: Container(
+            height: height,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .09),
+              borderRadius: BorderRadius.circular(3),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: Stack(children: [
+                Align(
+                  alignment: mirrored ? Alignment.centerRight : Alignment.centerLeft,
+                  child: FractionallySizedBox(
+                    widthFactor: v.clamp(0.0, 1.0),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: mirrored
+                              ? [c, c.withValues(alpha: .7)]
+                              : [c.withValues(alpha: .7), c],
+                        ),
+                        boxShadow: [BoxShadow(color: c.withValues(alpha: .6), blurRadius: 8)],
+                      ),
+                    ),
+                  ),
+                ),
+                if (showText) Center(child: Text('$hp / $maxHp', style: const TextStyle(
+                    fontSize: 9, fontWeight: FontWeight.w900, color: Colors.white,
+                    shadows: [Shadow(color: Colors.black, blurRadius: 3)]))),
+              ]),
+            ),
           ),
         );
       },

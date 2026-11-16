@@ -11,6 +11,8 @@ import 'how_to_play.dart';
 import 'shine_ui.dart';
 import 'squad_picker.dart';
 
+typedef _RoomMap = Map<String, dynamic>;
+
 enum _OnlineKind { create, join, resume }
 
 class _OnlineChoice {
@@ -19,7 +21,6 @@ class _OnlineChoice {
   final String code;
 }
 
-/// Menu utama: memilih mode permainan. Dibuka dari beranda awal.
 class ShineMenuPage extends StatefulWidget {
   const ShineMenuPage({super.key});
   @override
@@ -32,7 +33,7 @@ class _ShineMenuPageState extends State<ShineMenuPage> {
     'linzixuan', 'hanseoah', 'zhangmingzhe', 'kwontaehyuk',
   ];
 
-  late final String _heroId = _spotlight[math.Random().nextInt(_spotlight.length)];
+  late String _heroId = _spotlight[math.Random().nextInt(_spotlight.length)];
   bool busy = false;
   int difficulty = 1;
   SavedGame? saved;
@@ -45,6 +46,14 @@ class _ShineMenuPageState extends State<ShineMenuPage> {
     final game = await LocalGameStorage.load();
     final stats = await LocalGameStorage.records();
     if (mounted) setState(() { saved = game; records = stats; });
+  }
+
+  void _cycleHero() {
+    HapticFeedback.selectionClick();
+    setState(() {
+      final idx = (_spotlight.indexOf(_heroId) + 1) % _spotlight.length;
+      _heroId = _spotlight[idx];
+    });
   }
 
   // ───────────── Alur permainan ─────────────
@@ -138,7 +147,8 @@ class _ShineMenuPageState extends State<ShineMenuPage> {
       final rooms = await service.myRooms();
       if (!mounted) return;
       if (rooms.isEmpty) { _notify('Belum ada ruang aktif yang bisa dilanjutkan.'); return; }
-      final room = await showDialog<Map<String, dynamic>>(context: context,
+      final room = await showDialog<_RoomMap>(
+          context: context,
           builder: (context) => SimpleDialog(
               title: const Text('Ruang daring kamu'),
               children: [
@@ -171,181 +181,202 @@ class _ShineMenuPageState extends State<ShineMenuPage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  // ───────────── Bagian layar ─────────────
+  // ───────────── Komponen Tanpa Kotak Berlebih ─────────────
 
-  Widget _heading() => const Padding(
-    padding: EdgeInsets.only(top: 6, bottom: 16),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Pilih mode permainan', style: TextStyle(
-          fontSize: 26, fontWeight: FontWeight.w900, height: 1.15)),
-      SizedBox(height: 4),
-      Text('Susun tiga tokoh, lalu masuk ke arena.',
-          style: TextStyle(fontSize: 14, color: shineMuted)),
-    ]),
-  );
-
-  Widget _continueCard() => Padding(
-    padding: const EdgeInsets.only(bottom: 14),
-    child: ShinePanel(
-      glow: shineGold, borderColor: shineGold.withValues(alpha: .55),
-      onTap: busy ? null : _continue,
-      child: Row(children: [
-        Container(width: 46, height: 46,
-            decoration: const BoxDecoration(shape: BoxShape.circle,
-                gradient: LinearGradient(colors: [shineGoldLight, shineGoldDeep])),
-            child: const Icon(Icons.play_arrow_rounded,
-                color: Color(0xFF241A08), size: 30)),
-        const SizedBox(width: 14),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('LANJUTKAN PERTANDINGAN', style: TextStyle(color: shineGold,
-              fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 1.6)),
-          const SizedBox(height: 3),
-          Text('Giliran ${saved!.battle.turn} • '
-              '${saved!.againstBot ? 'Vs Komputer' : 'Dua pemain'}',
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
-        ])),
-        const Icon(Icons.chevron_right, color: shineGold),
-      ]),
+  Widget _headerSection() => Padding(
+    padding: const EdgeInsets.only(top: 8, bottom: 20),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        const Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('ARENA TEMPUR', style: TextStyle(
+                color: shineGold, fontSize: 11, fontWeight: FontWeight.w900, letterSpacing: 3.5)),
+            SizedBox(height: 4),
+            Text('Pilih Mode Duel', style: TextStyle(
+                fontSize: 30, fontWeight: FontWeight.w900, height: 1.1, letterSpacing: -.5)),
+          ]),
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _inlineStat('${records['wins']}', 'MENANG', shineJade),
+            Container(width: 1, height: 22, margin: const EdgeInsets.symmetric(horizontal: 12),
+                color: Colors.white12),
+            _inlineStat('${records['losses']}', 'KALAH', shineEmber),
+            Container(width: 1, height: 22, margin: const EdgeInsets.symmetric(horizontal: 12),
+                color: Colors.white12),
+            _inlineStat('${records['games']}', 'MAIN', shineGold),
+          ],
+        ),
+      ],
     ),
   );
 
-  Widget _difficultySelector() {
-    Widget seg(int value, String label, IconData icon) {
-      final on = difficulty == value;
-      return Expanded(child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => difficulty = value),
-        child: MouseRegion(
-          cursor: SystemMouseCursors.click,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: on ? shineGold.withValues(alpha: .18) : Colors.transparent,
-              border: Border.all(color: on ? shineGold : Colors.transparent, width: 1.3),
-            ),
-            child: Column(children: [
-              Icon(icon, size: 18, color: on ? shineGold : shineMuted),
-              const SizedBox(height: 3),
-              Text(label, style: TextStyle(fontSize: 12,
-                  fontWeight: FontWeight.w800, color: on ? shineGold : shineMuted)),
+  Widget _inlineStat(String val, String label, Color color) => Column(
+    crossAxisAlignment: CrossAxisAlignment.end,
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Text(val, style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900,
+          color: color, height: 1)),
+      const SizedBox(height: 3),
+      Text(label, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
+          color: shineMuted, letterSpacing: 1.2)),
+    ],
+  );
+
+  Widget _continueBanner() => Padding(
+    padding: const EdgeInsets.only(bottom: 16),
+    child: Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: busy ? null : _continue,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(14),
+            gradient: LinearGradient(colors: [
+              shineGold.withValues(alpha: .22),
+              shineGold.withValues(alpha: .04),
             ]),
+            border: Border(
+              left: const BorderSide(color: shineGold, width: 4),
+              top: BorderSide(color: shineGold.withValues(alpha: .3)),
+              right: BorderSide(color: shineGold.withValues(alpha: .1)),
+              bottom: BorderSide(color: shineGold.withValues(alpha: .1)),
+            ),
           ),
+          child: Row(children: [
+            const Icon(Icons.play_circle_fill_rounded, color: shineGold, size: 32),
+            const SizedBox(width: 12),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const Text('PERTANDINGAN TERSIMPAN', style: TextStyle(color: shineGold,
+                  fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 2)),
+              const SizedBox(height: 2),
+              Text('Lanjutkan Giliran ${saved!.battle.turn} • '
+                  '${saved!.againstBot ? 'Vs Komputer' : 'Dua Pemain'}',
+                  style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w800)),
+            ])),
+            const Icon(Icons.arrow_forward_ios_rounded, size: 15, color: shineGold),
+          ]),
         ),
-      ));
-    }
-    return Container(
-      padding: const EdgeInsets.all(5),
-      decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: .3),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.white10)),
-      child: Row(children: [
-        seg(0, 'Santai', Icons.sentiment_satisfied_alt),
-        seg(1, 'Normal', Icons.speed),
-        seg(2, 'Ahli', Icons.local_fire_department),
-      ]),
+      ),
+    ),
+  );
+
+  Widget _difficultyStrip() {
+    const items = [(0, 'SANTAI'), (1, 'NORMAL'), (2, 'AHLI')];
+    return Row(
+      children: [
+        const Icon(Icons.tune_rounded, size: 14, color: shineMuted),
+        const SizedBox(width: 8),
+        const Text('TINGKAT AI:', style: TextStyle(
+            fontSize: 10, fontWeight: FontWeight.w800, color: shineMuted, letterSpacing: 1.5)),
+        const Spacer(),
+        for (final (val, label) in items)
+          Padding(
+            padding: const EdgeInsets.only(left: 6),
+            child: GestureDetector(
+              onTap: () {
+                HapticFeedback.selectionClick();
+                setState(() => difficulty = val);
+              },
+              child: MouseRegion(
+                cursor: SystemMouseCursors.click,
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    color: difficulty == val
+                        ? shineGold
+                        : Colors.white.withValues(alpha: .06),
+                  ),
+                  child: Text(label, style: TextStyle(
+                    fontSize: 10.5, fontWeight: FontWeight.w900, letterSpacing: 1,
+                    color: difficulty == val ? const Color(0xFF1F1505) : Colors.white70,
+                  )),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
-  Widget _botCard() => Reveal(index: 1, child: _ModeCard(
-    big: true, accent: shineGold, icon: Icons.smart_toy_outlined,
-    title: 'LAWAN KOMPUTER', subtitle: 'Tanpa internet • lawan acak',
-    art: 'chaminhyuk', onTap: busy ? null : startBot,
-    footer: _difficultySelector(),
-  ));
-
-  Widget _duoCard() => Reveal(index: 2, child: _ModeCard(
-    accent: shineAzure, icon: Icons.people_outline,
-    title: 'DUA PEMAIN', subtitle: 'Satu perangkat, bergantian',
-    art: 'kangjiwoo', onTap: busy ? null : local,
-  ));
-
-  Widget _onlineCard() => Reveal(index: 3, child: _ModeCard(
-    accent: shineViolet, icon: Icons.public,
-    title: 'ARENA ONLINE', subtitle: 'Duel 1 vs 1 lewat kode ruang',
-    badge: 'ONLINE', art: 'baekseoyeon',
-    onTap: busy ? null : _openOnline,
-  ));
-
-  Widget _utilities() => Reveal(index: 4, child: Row(children: [
-    Expanded(child: _UtilityTile(icon: Icons.collections_bookmark_outlined,
-        label: 'Koleksi tokoh', onTap: busy ? null : _openGallery)),
-    const SizedBox(width: 12),
-    Expanded(child: _UtilityTile(icon: Icons.menu_book_outlined,
-        label: 'Cara bermain', onTap: () => showHowToPlay(context))),
-  ]));
-
-  Widget _statTile(String value, String label, Color color) => Expanded(
-    child: Column(children: [
-      Text(value, style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: color)),
-      const SizedBox(height: 2),
-      Text(label, style: const TextStyle(
-          fontSize: 10.5, color: shineMuted, letterSpacing: 1.2, fontWeight: FontWeight.w700)),
-    ]),
-  );
-
-  Widget _records() => ShinePanel(
-    padding: const EdgeInsets.symmetric(vertical: 16),
-    child: IntrinsicHeight(child: Row(children: [
-      _statTile('${records['wins']}', 'MENANG', shineJade),
-      VerticalDivider(color: Colors.white.withValues(alpha: .1), width: 1),
-      _statTile('${records['losses']}', 'KALAH', shineEmber),
-      VerticalDivider(color: Colors.white.withValues(alpha: .1), width: 1),
-      _statTile('${records['games']}', 'MAIN', shineGold),
-    ])),
-  );
-
-  List<Widget> _modes() => [
-    if (saved != null) Reveal(child: _continueCard()),
-    _botCard(),
-    const SizedBox(height: 14),
-    _duoCard(),
-    const SizedBox(height: 14),
-    _onlineCard(),
-    const SizedBox(height: 14),
-    _utilities(),
+  List<Widget> _modeList() => [
+    if (saved != null) Reveal(child: _continueBanner()),
+    Reveal(index: 1, child: _SleekModeBanner(
+      big: true,
+      accent: shineGold,
+      tag: 'SOLO CAMPAIGN',
+      title: 'LAWAN KOMPUTER',
+      subtitle: 'Latih kombo & strategi melawan AI adaptif',
+      art: 'chaminhyuk',
+      onTap: busy ? null : startBot,
+      bottomBar: _difficultyStrip(),
+    )),
+    const SizedBox(height: 12),
+    Reveal(index: 2, child: _SleekModeBanner(
+      accent: shineViolet,
+      tag: 'REALTIME MULTIPLAYER',
+      title: 'ARENA ONLINE',
+      subtitle: 'Tantang pemain lain lewat kode ruang 1 vs 1',
+      art: 'baekseoyeon',
+      onTap: busy ? null : _openOnline,
+    )),
+    const SizedBox(height: 12),
+    Reveal(index: 3, child: _SleekModeBanner(
+      accent: shineAzure,
+      tag: 'LOCAL HOTSEAT',
+      title: 'DUA PEMAIN',
+      subtitle: 'Bertarung bergantian di satu perangkat yang sama',
+      art: 'kangjiwoo',
+      onTap: busy ? null : local,
+    )),
   ];
 
   Widget _narrowBody() => ListView(
-    padding: const EdgeInsets.fromLTRB(18, 0, 18, 28),
+    padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
     children: [
       Center(child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          _heading(),
-          ..._modes(),
-          Reveal(index: 5, child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            const SectionLabel('CATATAN VS KOMPUTER'),
-            _records(),
-          ])),
+          _headerSection(),
+          ..._modeList(),
         ]),
       )),
     ],
   );
 
   Widget _wideBody() => Center(child: ConstrainedBox(
-    constraints: const BoxConstraints(maxWidth: 1200),
+    constraints: const BoxConstraints(maxWidth: 1240),
     child: Padding(
-      padding: const EdgeInsets.fromLTRB(32, 0, 32, 24),
+      padding: const EdgeInsets.fromLTRB(40, 0, 40, 24),
       child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Expanded(flex: 11, child: SingleChildScrollView(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            _heading(),
-            ..._modes(),
-          ]),
+        Expanded(flex: 11, child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _headerSection(),
+                ..._modeList(),
+              ],
+            ),
+          ),
         )),
-        const SizedBox(width: 32),
-        Expanded(flex: 9, child: Reveal(index: 2, child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(child: _Showcase(spec: characterById(_heroId))),
-            const SizedBox(height: 14),
-            _records(),
-          ],
-        ))),
+        const SizedBox(width: 44),
+        Expanded(flex: 9, child: Reveal(
+          index: 2,
+          child: _OpenHeroShowcase(
+            spec: characterById(_heroId),
+            onNext: _cycleHero,
+            onBrowseAll: _openGallery,
+          ),
+        )),
       ]),
     ),
   ));
@@ -357,8 +388,9 @@ class _ShineMenuPageState extends State<ShineMenuPage> {
       SafeArea(child: LayoutBuilder(builder: (context, box) {
         final wide = shineIsWide(box.biggest);
         return Column(children: [
-          _TopBar(
+          _TopNav(
             onBack: () => Navigator.of(context).maybePop(),
+            onGallery: busy ? null : _openGallery,
             onHelp: () => showHowToPlay(context),
           ),
           Expanded(child: wide ? _wideBody() : _narrowBody()),
@@ -372,49 +404,54 @@ class _ShineMenuPageState extends State<ShineMenuPage> {
   );
 }
 
-// ───────────── Komponen ─────────────
-
-class _TopBar extends StatelessWidget {
-  const _TopBar({required this.onBack, required this.onHelp});
+class _TopNav extends StatelessWidget {
+  const _TopNav({required this.onBack, required this.onGallery, required this.onHelp});
   final VoidCallback onBack, onHelp;
+  final VoidCallback? onGallery;
 
   @override
   Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.fromLTRB(6, 4, 6, 0),
-    child: SizedBox(height: 52, child: Row(children: [
+    padding: const EdgeInsets.fromLTRB(10, 6, 14, 0),
+    child: SizedBox(height: 50, child: Row(children: [
       IconButton(
           tooltip: 'Kembali ke beranda', onPressed: onBack,
           icon: const Icon(Icons.arrow_back_ios_new_rounded,
-              color: shineGold, size: 20)),
+              color: shineGold, size: 19)),
       const SizedBox(width: 4),
-      const ShineWordmark(size: 22),
+      const ShineWordmark(size: 21),
       const Spacer(),
+      TextButton.icon(
+        onPressed: onGallery,
+        style: TextButton.styleFrom(foregroundColor: Colors.white),
+        icon: const Icon(Icons.style_outlined, size: 17, color: shineGold),
+        label: const Text('KOLEKSI TOKOH', style: TextStyle(
+            fontSize: 11.5, fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+      ),
+      const SizedBox(width: 4),
       IconButton(
           tooltip: 'Cara bermain', onPressed: onHelp,
-          icon: const Icon(Icons.help_outline, color: shineGold)),
+          icon: const Icon(Icons.help_outline_rounded, color: shineGold, size: 21)),
     ])),
   );
 }
 
-/// Kartu mode permainan. [big] untuk mode utama; [art] menampilkan potret
-/// tokoh yang memudar di sisi kanan.
-class _ModeCard extends StatefulWidget {
-  const _ModeCard({required this.title, required this.subtitle,
-    required this.icon, required this.accent, required this.onTap,
-    this.art, this.big = false, this.footer, this.badge});
-  final String title, subtitle;
-  final IconData icon;
+class _SleekModeBanner extends StatefulWidget {
+  const _SleekModeBanner({
+    required this.tag, required this.title, required this.subtitle,
+    required this.accent, required this.onTap, required this.art,
+    this.big = false, this.bottomBar,
+  });
+  final String tag, title, subtitle, art;
   final Color accent;
   final VoidCallback? onTap;
-  final String? art, badge;
   final bool big;
-  final Widget? footer;
+  final Widget? bottomBar;
 
   @override
-  State<_ModeCard> createState() => _ModeCardState();
+  State<_SleekModeBanner> createState() => _SleekModeBannerState();
 }
 
-class _ModeCardState extends State<_ModeCard> {
+class _SleekModeBannerState extends State<_SleekModeBanner> {
   bool _hover = false;
 
   @override
@@ -422,131 +459,116 @@ class _ModeCardState extends State<_ModeCard> {
     final w = widget;
     final enabled = w.onTap != null;
     final lit = _hover && enabled;
-    final r = BorderRadius.circular(w.big ? 24 : 20);
-    final artWidth = w.big ? 160.0 : 104.0;
-    final onAccent = w.accent == shineGold ? const Color(0xFF241A08) : Colors.white;
+    final artWidth = w.big ? 190.0 : 145.0;
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
       onEnter: (_) => setState(() => _hover = true),
       onExit: (_) => setState(() => _hover = false),
-      child: AnimatedOpacity(
-        duration: const Duration(milliseconds: 200),
-        opacity: enabled ? 1 : .5,
-        child: AnimatedScale(
-          scale: lit ? 1.012 : 1,
-          duration: const Duration(milliseconds: 160),
-          curve: Curves.easeOut,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 220),
-            decoration: BoxDecoration(
-              borderRadius: r,
-              gradient: LinearGradient(
-                begin: Alignment.topLeft, end: Alignment.bottomRight,
-                colors: [
-                  Color.alphaBlend(
-                      w.accent.withValues(alpha: lit ? .26 : .16),
-                      const Color(0xFF262136)),
-                  const Color(0xFF161324),
-                ],
-              ),
-              border: Border.all(
-                color: w.accent.withValues(
-                    alpha: lit ? .95 : (w.big ? .62 : .34)),
-                width: w.big ? 1.6 : 1.2,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: w.accent.withValues(
-                      alpha: lit ? .4 : (w.big ? .26 : .1)),
-                  blurRadius: lit ? 34 : 24, spreadRadius: -6,
-                ),
-                BoxShadow(color: Colors.black.withValues(alpha: .4),
-                    blurRadius: 16, offset: const Offset(0, 8)),
+      child: AnimatedScale(
+        scale: lit ? 1.012 : 1.0,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+              begin: Alignment.centerLeft,
+              end: Alignment.centerRight,
+              colors: [
+                Color.alphaBlend(
+                    w.accent.withValues(alpha: lit ? .24 : .14),
+                    const Color(0xFF1C182B)),
+                const Color(0xB3100E1A),
               ],
             ),
-            child: ClipRRect(
-              borderRadius: r,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      onTap: w.onTap,
-                      child: Stack(children: [
-                        if (w.art != null) Positioned(
-                          right: 0, top: 0, bottom: 0, width: artWidth,
-                          child: ShaderMask(
-                            blendMode: BlendMode.dstIn,
-                            shaderCallback: (rect) => const LinearGradient(
-                              begin: Alignment.centerLeft,
-                              end: Alignment.centerRight,
-                              colors: [Colors.transparent, Colors.black],
-                              stops: [0, .65],
-                            ).createShader(rect),
-                            child: Portrait(characterById(w.art!),
-                                radius: 0, border: false),
-                          ),
+            border: Border(
+              left: BorderSide(color: w.accent, width: w.big ? 4.5 : 3.5),
+              top: BorderSide(color: w.accent.withValues(alpha: lit ? .55 : .18)),
+              right: BorderSide(color: Colors.white.withValues(alpha: lit ? .15 : .05)),
+              bottom: BorderSide(color: Colors.white.withValues(alpha: lit ? .15 : .05)),
+            ),
+            boxShadow: [
+              if (lit || w.big)
+                BoxShadow(
+                  color: w.accent.withValues(alpha: lit ? .28 : .12),
+                  blurRadius: lit ? 28 : 18,
+                  spreadRadius: -6,
+                  offset: const Offset(0, 6),
+                ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(15),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: w.onTap,
+                    child: Stack(children: [
+                      Positioned(
+                        right: -6, top: 0, bottom: 0, width: artWidth,
+                        child: ShaderMask(
+                          blendMode: BlendMode.dstIn,
+                          shaderCallback: (rect) => const LinearGradient(
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                            colors: [Colors.transparent, Colors.black],
+                            stops: [0.05, 0.75],
+                          ).createShader(rect),
+                          child: Portrait(characterById(w.art),
+                              radius: 0, border: false),
                         ),
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(
-                              18, w.big ? 24 : 18, artWidth - 28, w.big ? 24 : 18),
-                          child: Row(children: [
-                            Container(
-                              width: w.big ? 52 : 44, height: w.big ? 52 : 44,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                gradient: LinearGradient(
-                                  begin: Alignment.topCenter,
-                                  end: Alignment.bottomCenter,
-                                  colors: [
-                                    Color.lerp(w.accent, Colors.white, .25)!,
-                                    Color.lerp(w.accent, Colors.black, .3)!,
-                                  ],
-                                ),
-                                boxShadow: [BoxShadow(
-                                    color: w.accent.withValues(alpha: .5),
-                                    blurRadius: 16, spreadRadius: -2)],
+                      ),
+                      Padding(
+                        padding: EdgeInsets.fromLTRB(
+                            22, w.big ? 22 : 16, artWidth - 36, w.big ? 22 : 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(w.tag, style: TextStyle(
+                                color: w.accent, fontSize: 10,
+                                fontWeight: FontWeight.w900, letterSpacing: 2.5)),
+                            const SizedBox(height: 5),
+                            Row(children: [
+                              Flexible(
+                                child: Text(w.title, style: TextStyle(
+                                    fontSize: w.big ? 22 : 17,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: .8, height: 1.1)),
                               ),
-                              child: Icon(w.icon, color: onAccent,
-                                  size: w.big ? 28 : 24),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (w.badge != null) Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: StatPill(w.badge!, color: w.accent),
-                                ),
-                                Text(w.title, maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                        fontSize: w.big ? 18 : 15,
-                                        fontWeight: FontWeight.w900,
-                                        letterSpacing: 1.2, height: 1.15)),
-                                const SizedBox(height: 4),
-                                Text(w.subtitle, maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontSize: 12, height: 1.3,
-                                        color: Colors.white70)),
-                              ],
-                            )),
-                          ]),
+                              const SizedBox(width: 8),
+                              AnimatedSlide(
+                                offset: Offset(lit ? 0.18 : 0, 0),
+                                duration: const Duration(milliseconds: 180),
+                                child: Icon(Icons.arrow_forward_rounded,
+                                    size: w.big ? 20 : 17, color: w.accent),
+                              ),
+                            ]),
+                            const SizedBox(height: 5),
+                            Text(w.subtitle, style: TextStyle(
+                                fontSize: 12.5, height: 1.35,
+                                color: Colors.white.withValues(alpha: .72))),
+                          ],
                         ),
-                      ]),
+                      ),
+                    ]),
+                  ),
+                ),
+                if (w.bottomBar != null)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: .28),
+                      border: Border(top: BorderSide(color: Colors.white.withValues(alpha: .06))),
                     ),
+                    child: w.bottomBar,
                   ),
-                  if (w.footer != null) Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                    child: w.footer,
-                  ),
-                ],
-              ),
+              ],
             ),
           ),
         ),
@@ -555,75 +577,91 @@ class _ModeCardState extends State<_ModeCard> {
   }
 }
 
-class _UtilityTile extends StatelessWidget {
-  const _UtilityTile({required this.icon, required this.label, required this.onTap});
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) => ShinePanel(
-    radius: 16,
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 16),
-    onTap: onTap,
-    child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Icon(icon, size: 20, color: shineGold),
-      const SizedBox(width: 10),
-      Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w800))),
-    ]),
-  );
-}
-
-/// Panel "tokoh sorotan" di sisi kanan menu pada layar lebar.
-class _Showcase extends StatelessWidget {
-  const _Showcase({required this.spec});
+class _OpenHeroShowcase extends StatelessWidget {
+  const _OpenHeroShowcase({
+    required this.spec, required this.onNext, required this.onBrowseAll,
+  });
   final CharacterSpec spec;
+  final VoidCallback onNext, onBrowseAll;
 
   @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      borderRadius: BorderRadius.circular(28),
-      border: Border.all(color: shineGold.withValues(alpha: .5), width: 1.4),
-      boxShadow: [
-        BoxShadow(color: shineGold.withValues(alpha: .26),
-            blurRadius: 44, spreadRadius: -6),
-        BoxShadow(color: Colors.black.withValues(alpha: .5),
-            blurRadius: 24, offset: const Offset(0, 14)),
-      ],
-    ),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(26.6),
-      child: Stack(fit: StackFit.expand, children: [
-        Portrait(spec, radius: 0, border: false),
-        DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
-          begin: Alignment.topCenter, end: Alignment.bottomCenter,
-          stops: const [.5, 1],
-          colors: [Colors.transparent, Colors.black.withValues(alpha: .92)],
-        ))),
-        Positioned(left: 22, right: 22, bottom: 22, child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const StatPill('TOKOH SOROTAN', icon: Icons.star_rounded,
-                color: shineGold),
-            const SizedBox(height: 10),
-            Text(spec.name, style: const TextStyle(
-                fontSize: 28, fontWeight: FontWeight.w900, height: 1.1)),
-            const SizedBox(height: 10),
-            Wrap(spacing: 6, runSpacing: 6, children: [
-              StatPill('HP ${spec.hp}', icon: Icons.favorite, color: shineJade),
-              StatPill('ATK ${spec.attack}', icon: Icons.bolt, color: shineEmber),
-              StatPill(spec.skill, icon: Icons.auto_awesome, color: shineViolet),
-            ]),
-          ],
-        )),
-      ]),
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onNext,
+    child: MouseRegion(
+      cursor: SystemMouseCursors.click,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: const Alignment(0, -0.15),
+                  radius: 0.7,
+                  colors: [
+                    shineGold.withValues(alpha: .22),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Positioned.fill(
+            bottom: 60,
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 450),
+              child: ShaderMask(
+                key: ValueKey(spec.id),
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (rect) => const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.transparent, Colors.black, Colors.black, Colors.transparent],
+                  stops: [0.0, 0.12, 0.72, 1.0],
+                ).createShader(rect),
+                child: Portrait(spec, radius: 24, border: false),
+              ),
+            ),
+          ),
+          Positioned(
+            left: 12, right: 12, bottom: 12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(children: [
+                  const Text('SOROTAN PETARUNG', style: TextStyle(
+                      color: shineGold, fontSize: 10.5,
+                      fontWeight: FontWeight.w900, letterSpacing: 3)),
+                  const Spacer(),
+                  Text('Ketuk untuk ganti ↻', style: TextStyle(
+                      color: Colors.white.withValues(alpha: .45), fontSize: 11)),
+                ]),
+                const SizedBox(height: 6),
+                Text(spec.name.toUpperCase(), style: const TextStyle(
+                    fontSize: 32, fontWeight: FontWeight.w900,
+                    letterSpacing: 1, height: 1.05,
+                    shadows: [Shadow(color: Colors.black, blurRadius: 16)])),
+                const SizedBox(height: 8),
+                Text('${spec.skill} — ${skillText(spec)}',
+                    maxLines: 2, overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12.5, height: 1.4,
+                        color: Colors.white.withValues(alpha: .8))),
+                const SizedBox(height: 12),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  StatPill('HP ${spec.hp}', icon: Icons.favorite, color: shineJade),
+                  StatPill('ATK ${spec.attack}', icon: Icons.flash_on, color: shineEmber),
+                  StatPill('${spec.cost} PA • CD ${spec.cooldown}',
+                      icon: Icons.auto_awesome, color: shineViolet),
+                ]),
+              ],
+            ),
+          ),
+        ],
+      ),
     ),
   );
 }
-
-// ───────────── Lembar Arena Online ─────────────
 
 class _OnlineSheet extends StatefulWidget {
   const _OnlineSheet();

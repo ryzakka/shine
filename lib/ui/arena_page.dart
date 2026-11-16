@@ -11,6 +11,8 @@ import '../domain/battle_rules.dart';
 import '../online/shine_service.dart';
 import 'shine_ui.dart';
 
+typedef RoomMap = Map<String, dynamic>;
+typedef RoomList = List<RoomMap>;
 typedef BattleAction = Future<void> Function({
 required int attack, required int defend, required int reserve,
 required bool useSkill, int? swapTo,
@@ -62,7 +64,7 @@ class _LocalArenaPageState extends State<LocalArenaPage> {
     }
     if (widget.againstBot && widget.battle.winner == null &&
         widget.battle.acting == 1 && _botTimer == null) {
-      _botTimer = Timer(const Duration(milliseconds: 1100), () {
+      _botTimer = Timer(const Duration(milliseconds: 1150), () {
         _botTimer = null;
         if (!mounted || widget.battle.acting != 1 || widget.battle.winner != null) return;
         final action = _bot.choose(widget.battle);
@@ -139,260 +141,259 @@ class OnlineArenaPage extends StatefulWidget {
 
 class _OnlineArenaPageState extends State<OnlineArenaPage> {
   late final ShineService service = ShineService(Supabase.instance.client);
-  late final Stream<List<Map<String, dynamic>>> roomStream = service.watchRoom(widget.roomId);
+  late final Stream<RoomList> roomStream = service.watchRoom(widget.roomId);
   bool submitting = false;
   bool expiring = false;
 
   void _notice(Object error) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Tindakan gagal: $error')));
+  if (!mounted) return;
+  ScaffoldMessenger.of(context).showSnackBar(
+  SnackBar(content: Text('Tindakan gagal: $error')));
   }
 
   Future<bool> _perform(Future<void> Function() action) async {
-    if (submitting) return false;
-    setState(() => submitting = true);
-    try {
-      await action();
-      return true;
-    } catch (error) {
-      _notice(error);
-      return false;
-    } finally {
-      if (mounted) setState(() => submitting = false);
-    }
+  if (submitting) return false;
+  setState(() => submitting = true);
+  try {
+  await action();
+  return true;
+  } catch (error) {
+  _notice(error);
+  return false;
+  } finally {
+  if (mounted) setState(() => submitting = false);
+  }
   }
 
   Future<bool> _ask(String title, String body, String confirm) async {
-    if (!mounted) return false;
-    return await showDialog<bool>(context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text(title), content: Text(body),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(confirm)),
-          ],
-        )) ?? false;
+  if (!mounted) return false;
+  return await showDialog<bool>(context: context,
+  builder: (ctx) => AlertDialog(
+  title: Text(title), content: Text(body),
+  actions: [
+  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(confirm)),
+  ],
+  )) ?? false;
   }
 
   Future<void> _endRoom({required bool disband}) async {
-    final agreed = await _ask(disband ? 'Bubarkan ruang?' : 'Menyerah?',
-        disband
-            ? 'Semua pemain akan keluar dari pertandingan. Tidak ada pemenang.'
-            : 'Pertandingan berakhir dan tim lawan dinyatakan menang.',
-        disband ? 'Bubarkan' : 'Menyerah');
-    if (agreed) await _perform(() => service.endRoom(widget.roomId, disband: disband));
+  final agreed = await _ask(disband ? 'Bubarkan ruang?' : 'Menyerah?',
+  disband
+  ? 'Semua pemain akan keluar dari pertandingan. Tidak ada pemenang.'
+      : 'Pertandingan berakhir dan tim lawan dinyatakan menang.',
+  disband ? 'Bubarkan' : 'Menyerah');
+  if (agreed) await _perform(() => service.endRoom(widget.roomId, disband: disband));
   }
 
   Future<void> _expire() async {
-    if (expiring) return;
-    expiring = true;
-    try { await service.expireTurn(widget.roomId); }
-    catch (error) { _notice(error); }
-    finally { expiring = false; }
+  if (expiring) return;
+  expiring = true;
+  try { await service.expireTurn(widget.roomId); }
+  catch (error) { _notice(error); }
+  finally { expiring = false; }
   }
 
   Widget _centerScaffold({required String title, required IconData icon,
-    required String message, String? action, bool spinner = false}) =>
-      ShineScaffold(
-        appBar: AppBar(title: Text(title)),
-        body: Center(child: Padding(padding: const EdgeInsets.all(28),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              if (spinner) const CircularProgressIndicator()
-              else Icon(icon, color: shineGold, size: 64),
-              const SizedBox(height: 16),
-              Text(message, textAlign: TextAlign.center,
-                  style: const TextStyle(fontSize: 15, height: 1.4)),
-              if (action != null) ...[
-                const SizedBox(height: 22),
-                SizedBox(width: 240, child: ShineButton(label: action,
-                    icon: Icons.home_outlined, onPressed: () => Navigator.pop(context))),
-              ],
-            ]))),
-      );
+  required String message, String? action, bool spinner = false}) =>
+  ShineScaffold(
+  appBar: AppBar(title: Text(title)),
+  body: Center(child: Padding(padding: const EdgeInsets.all(28),
+  child: Column(mainAxisSize: MainAxisSize.min, children: [
+  if (spinner) const CircularProgressIndicator()
+  else Icon(icon, color: shineGold, size: 64),
+  const SizedBox(height: 16),
+  Text(message, textAlign: TextAlign.center,
+  style: const TextStyle(fontSize: 15, height: 1.4)),
+  if (action != null) ...[
+  const SizedBox(height: 22),
+  SizedBox(width: 240, child: ShineButton(label: action,
+  icon: Icons.home_outlined, onPressed: () => Navigator.pop(context))),
+  ],
+  ]))),
+  );
 
   Widget _lobby(Map<String,dynamic> room) {
-    final uid = Supabase.instance.client.auth.currentUser?.id;
-    final isHost = uid == room['host_id'];
-    final joined = room['guest_id'] != null;
-    final ready = room['guest_ready'] == true;
-    final seconds = (room['turn_seconds'] as num?)?.toInt() ?? 30;
-    final hostCards = (room['host_cards'] as List? ?? []).map((e) => e.toString()).toList();
-    final guestCards = (room['guest_cards'] as List? ?? []).map((e) => e.toString()).toList();
-    return ShineScaffold(
-      embers: true,
-      appBar: AppBar(title: const Text('LOBI SHINE'), actions: [
-        IconButton(tooltip:'Beranda (ruang tetap ada)',
-            onPressed: () => Navigator.pop(context), icon: const Icon(Icons.home_outlined)),
-      ]),
-      body: SafeArea(child: Center(child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 620),
-          child: ListView(padding: const EdgeInsets.fromLTRB(18, 4, 18, 24), children: [
-        Reveal(child: ShinePanel(glow: shineGold, borderColor: shineGold.withValues(alpha: .5),
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: Column(children: [
-              const Text('KODE UNDANGAN', style: TextStyle(letterSpacing: 3,
-                  fontSize: 11, color: shineMuted, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              ShaderMask(
-                shaderCallback: (r) => const LinearGradient(
-                    colors: [shineGoldLight, shineGold, shineGoldDeep],
-                    begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(r),
-                child: SelectableText(widget.roomCode, style: const TextStyle(
-                    color: Colors.white, fontSize: 44, fontWeight: FontWeight.w900, letterSpacing: 10)),
-              ),
-              TextButton.icon(onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: widget.roomCode));
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Kode lobi disalin.')));
-              }, icon: const Icon(Icons.copy, size: 18), label: const Text('Salin kode')),
-            ]))),
-        const SizedBox(height: 16),
-        Reveal(index: 1, child: _lobbyPlayer('TIM A • HOST', hostCards,
-            joined: true, ready: true, accent: shineAzure)),
-        Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Center(
-            child: Text('VS', style: TextStyle(color: shineGold.withValues(alpha: .9),
-                fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 4)))),
-        Reveal(index: 2, child: _lobbyPlayer('TIM B • PEMAIN KEDUA', guestCards,
-            joined: joined, ready: ready, accent: shineEmber)),
-        SectionLabel('TIMER PER GILIRAN', trailing: StatPill('$seconds detik',
-            icon: Icons.timer_outlined, color: shineGold)),
-        Wrap(spacing:8,runSpacing:8,children: [
-          for (final time in const [20,30,45,60])
-            ChoiceChip(label: Text('$time detik'), selected: seconds == time,
-                onSelected: isHost && !submitting
-                    ? (_) => _perform(() => service.setTimer(widget.roomId,time))
-                    : null),
-        ]),
-        const SizedBox(height: 24),
-        if (isHost) ...[
-          ShineButton(icon: Icons.play_arrow, label: 'MULAI PERTANDINGAN', height: 60,
-              onPressed: joined && ready && !submitting
-                  ? () => _perform(() => service.startRoom(widget.roomId)) : null),
-          const SizedBox(height: 10),
-          Text(joined
-              ? (ready ? 'Pemain kedua siap. Pertandingan dapat dimulai.'
-              : 'Menunggu pemain kedua menekan tombol Siap.')
-              : 'Menunggu pemain kedua masuk menggunakan kode di atas.',
-              textAlign: TextAlign.center, style: const TextStyle(color:shineMuted,fontSize:12)),
-        ] else ...[
-          ShineButton(height: 60, primary: !ready,
-              icon: ready ? Icons.check_circle : Icons.hourglass_bottom,
-              label: ready ? 'SUDAH SIAP • BATALKAN' : 'SAYA SIAP',
-              onPressed: submitting ? null : () => _perform(() => service.setReady(widget.roomId,!ready))),
-          const SizedBox(height: 10),
-          const Text('Setelah kedua pemain siap, host akan memulai pertandingan.',
-              textAlign: TextAlign.center, style: TextStyle(color:shineMuted,fontSize:12)),
-        ],
-        const SizedBox(height: 26),
-        ShineButton(primary: false, icon: Icons.home_outlined, height: 48,
-            label: 'KEMBALI KE BERANDA', subtitle: 'Lobi tetap ada',
-            onPressed: () => Navigator.pop(context)),
-        const SizedBox(height: 4),
-        TextButton.icon(onPressed: submitting ? null : () async {
-          if (isHost) {
-            await _endRoom(disband: true);
-          } else if (await _ask('Keluar dari lobi?',
-              'Slot tim B akan dibuka kembali untuk pemain lain.', 'Keluar')) {
-            final success = await _perform(() => service.leaveLobby(widget.roomId));
-            if (success && mounted) Navigator.pop(context);
-          }
-        }, style: TextButton.styleFrom(foregroundColor: shineEmber),
-            icon: Icon(isHost ? Icons.delete_outline : Icons.exit_to_app),
-            label: Text(isHost ? 'Bubarkan lobi' : 'Keluar dari lobi')),
-      ])))),
-    );
+  final uid = Supabase.instance.client.auth.currentUser?.id;
+  final isHost = uid == room['host_id'];
+  final joined = room['guest_id'] != null;
+  final ready = room['guest_ready'] == true;
+  final seconds = (room['turn_seconds'] as num?)?.toInt() ?? 30;
+  final hostCards = (room['host_cards'] as List? ?? []).map((e) => e.toString()).toList();
+  final guestCards = (room['guest_cards'] as List? ?? []).map((e) => e.toString()).toList();
+  return ShineScaffold(
+  embers: true,
+  appBar: AppBar(title: const Text('LOBI ARENA'), actions: [
+  IconButton(tooltip:'Beranda (ruang tetap ada)',
+  onPressed: () => Navigator.pop(context), icon: const Icon(Icons.home_outlined)),
+  ]),
+  body: SafeArea(child: Center(child: ConstrainedBox(
+  constraints: const BoxConstraints(maxWidth: 620),
+  child: ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), children: [
+  Reveal(child: Column(children: [
+  const Text('KODE UNDANGAN RUANG', style: TextStyle(letterSpacing: 3.5,
+  fontSize: 10.5, color: shineMuted, fontWeight: FontWeight.w900)),
+  const SizedBox(height: 6),
+  ShaderMask(
+  shaderCallback: (r) => const LinearGradient(
+  colors: [shineGoldLight, shineGold, shineGoldDeep],
+  begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(r),
+  child: SelectableText(widget.roomCode, style: const TextStyle(
+  color: Colors.white, fontSize: 48, fontWeight: FontWeight.w900, letterSpacing: 12)),
+  ),
+  TextButton.icon(onPressed: () async {
+  await Clipboard.setData(ClipboardData(text: widget.roomCode));
+  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+  const SnackBar(content: Text('Kode lobi disalin.')));
+  }, icon: const Icon(Icons.copy_rounded, size: 16), label: const Text('Salin kode')),
+  ])),
+  const SizedBox(height: 16),
+  Reveal(index: 1, child: _lobbyPlayer('TIM A • HOST', hostCards,
+  joined: true, ready: true, accent: shineAzure)),
+  Padding(padding: const EdgeInsets.symmetric(vertical: 10), child: Center(
+  child: Text('VS', style: TextStyle(color: shineGold.withValues(alpha: .9),
+  fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 5)))),
+  Reveal(index: 2, child: _lobbyPlayer('TIM B • PENANTANG', guestCards,
+  joined: joined, ready: ready, accent: shineEmber)),
+  SectionLabel('TIMER PER GILIRAN', trailing: StatPill('$seconds detik',
+  icon: Icons.timer_outlined, color: shineGold)),
+  Wrap(spacing:8,runSpacing:8,children: [
+  for (final time in const [20,30,45,60])
+  ChoiceChip(label: Text('$time detik'), selected: seconds == time,
+  onSelected: isHost && !submitting
+  ? (_) => _perform(() => service.setTimer(widget.roomId,time))
+      : null),
+  ]),
+  const SizedBox(height: 24),
+  if (isHost) ...[
+  ShineButton(icon: Icons.play_arrow_rounded, label: 'MULAI PERTANDINGAN', height: 58,
+  onPressed: joined && ready && !submitting
+  ? () => _perform(() => service.startRoom(widget.roomId)) : null),
+  const SizedBox(height: 10),
+  Text(joined
+  ? (ready ? 'Pemain kedua siap. Pertandingan dapat dimulai.'
+      : 'Menunggu pemain kedua menekan tombol Siap.')
+      : 'Menunggu pemain kedua masuk menggunakan kode di atas.',
+  textAlign: TextAlign.center, style: const TextStyle(color:shineMuted,fontSize:12)),
+  ] else ...[
+  ShineButton(height: 58, primary: !ready,
+  icon: ready ? Icons.check_circle : Icons.hourglass_bottom,
+  label: ready ? 'SUDAH SIAP • BATALKAN' : 'SAYA SIAP BERTARUNG',
+  onPressed: submitting ? null : () => _perform(() => service.setReady(widget.roomId,!ready))),
+  const SizedBox(height: 10),
+  const Text('Setelah kedua pemain siap, host akan memulai pertandingan.',
+  textAlign: TextAlign.center, style: TextStyle(color:shineMuted,fontSize:12)),
+  ],
+  const SizedBox(height: 22),
+  Row(children: [
+  Expanded(child: ShineButton(primary: false, icon: Icons.home_outlined, height: 48,
+  label: 'KE BERANDA', onPressed: () => Navigator.pop(context))),
+  const SizedBox(width: 12),
+  TextButton.icon(onPressed: submitting ? null : () async {
+  if (isHost) {
+  await _endRoom(disband: true);
+  } else if (await _ask('Keluar dari lobi?',
+  'Slot tim B akan dibuka kembali untuk pemain lain.', 'Keluar')) {
+  final success = await _perform(() => service.leaveLobby(widget.roomId));
+  if (success && mounted) Navigator.pop(context);
+  }
+  }, style: TextButton.styleFrom(foregroundColor: shineEmber),
+  icon: Icon(isHost ? Icons.delete_outline : Icons.exit_to_app),
+  label: Text(isHost ? 'Bubarkan' : 'Keluar')),
+  ]),
+  ])))),
+  );
   }
 
   Widget _lobbyPlayer(String label, List<String> ids,
-      {required bool joined, required bool ready, required Color accent}) =>
-      ShinePanel(tint: accent, borderColor: ready ? shineJade.withValues(alpha: .6) : null,
-          padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text(label, style: TextStyle(color: accent,
-                  fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.4))),
-              !joined
-                  ? const StatPill('Belum bergabung', icon: Icons.person_off_outlined)
-                  : ready
-                  ? const StatPill('Siap', icon: Icons.check_circle, color: shineJade)
-                  : const StatPill('Belum siap', icon: Icons.hourglass_bottom, color: shineGold),
-            ]),
-            const SizedBox(height: 12),
-            SizedBox(height: 128, child: Row(children: [
-              for (var i = 0; i < 3; i++) Expanded(child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: i < ids.length
-                    ? Column(children: [
-                  Expanded(child: Portrait(characterById(ids[i]), radius: 12)),
-                  const SizedBox(height: 5),
-                  Text(characterById(ids[i]).name, maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
-                ])
-                    : DecoratedBox(
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: .03),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white12)),
-                    child: const Center(child: Icon(Icons.help_outline, color: Colors.white24))),
-              )),
-            ])),
-          ]));
+  {required bool joined, required bool ready, required Color accent}) =>
+  ShinePanel(tint: accent, borderColor: ready ? shineJade.withValues(alpha: .5) : null,
+  padding: const EdgeInsets.all(14),
+  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+  Row(children: [
+  Expanded(child: Text(label, style: TextStyle(color: accent,
+  fontWeight: FontWeight.w900, fontSize: 11.5, letterSpacing: 1.6))),
+  !joined
+  ? const StatPill('Menunggu pemain', icon: Icons.person_off_outlined)
+      : ready
+  ? const StatPill('Siap', icon: Icons.check_circle, color: shineJade)
+      : const StatPill('Belum siap', icon: Icons.hourglass_bottom, color: shineGold),
+  ]),
+  const SizedBox(height: 12),
+  SizedBox(height: 124, child: Row(children: [
+  for (var i = 0; i < 3; i++) Expanded(child: Padding(
+  padding: const EdgeInsets.symmetric(horizontal: 4),
+  child: i < ids.length
+  ? Column(children: [
+  Expanded(child: Portrait(characterById(ids[i]), radius: 12)),
+  const SizedBox(height: 5),
+  Text(characterById(ids[i]).name, maxLines: 1,
+  overflow: TextOverflow.ellipsis,
+  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800)),
+  ])
+      : DecoratedBox(
+  decoration: BoxDecoration(color: Colors.white.withValues(alpha: .025),
+  borderRadius: BorderRadius.circular(12),
+  border: Border.all(color: Colors.white12)),
+  child: const Center(child: Icon(Icons.help_outline, color: Colors.white24))),
+  )),
+  ])),
+  ]));
 
   @override
-  Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
+  Widget build(BuildContext context) => StreamBuilder<RoomList>(
     stream: roomStream,
-    builder: (context, snapshot) {
-      if (snapshot.hasError) return _centerScaffold(title: 'ONLINE',
-          icon: Icons.error_outline, message: 'Gagal memuat ruang: ${snapshot.error}',
-          action: 'KE BERANDA');
-      if (!snapshot.hasData) return _centerScaffold(title: 'ONLINE',
-          icon: Icons.hourglass_bottom, message: 'Memuat ruang…', spinner: true);
-      if (snapshot.data!.isEmpty) return _centerScaffold(title: 'ONLINE',
-          icon: Icons.meeting_room_outlined,
-          message: 'Ruang tidak tersedia atau kamu sudah keluar.', action: 'KE BERANDA');
-      final room = snapshot.data!.first;
-      final status = room['status'] as String? ?? '';
-      if (status == 'waiting') return _lobby(room);
-      if (status == 'closed') return _centerScaffold(title: 'RUANG DIBUBARKAN',
-          icon: Icons.meeting_room_outlined,
-          message: 'Ruang telah dibubarkan oleh host.', action: 'KEMBALI KE BERANDA');
-      final rawState = room['state'];
-      if (rawState is! Map) return _centerScaffold(title: 'ONLINE',
-          icon: Icons.hourglass_bottom, message: 'Menunggu status pertandingan…', spinner: true);
-      final state = Map<String, dynamic>.from(rawState);
-      final acting = ((state['turn'] as num).toInt()-1)%2;
-      final uid = Supabase.instance.client.auth.currentUser?.id;
-      final isHost = uid == room['host_id'];
-      final canAct = acting == 0 ? isHost : uid == room['guest_id'];
-      final deadlineString = room['turn_deadline'] as String?;
-      return MatchArena(
-        title: 'Online • ${widget.roomCode}', state: state,
-        viewerSide: isHost ? 0 : 1,
-        canAct: canAct && !submitting && status == 'playing',
-        turnDeadline: deadlineString == null ? null : DateTime.tryParse(deadlineString)?.toUtc(),
-        onTimeout: status == 'playing' ? _expire : null,
-        onExit: () => Navigator.pop(context),
-        onSurrender: status == 'playing' && !submitting
-            ? () => _endRoom(disband:false) : null,
-        onDisband: status == 'playing' && isHost && !submitting
-            ? () => _endRoom(disband:true) : null,
-        onAction: ({int attack = 0, int defend = 0,
-          int reserve = 0, bool useSkill = false, int? swapTo}) async {
-          await _perform(() => service.submit(
-            id: widget.roomId,
-            revision: (room['revision'] as num).toInt(),
-            attack: attack, defend: defend, reserve: reserve,
-            useSkill: useSkill, swapTo: swapTo,
-          ));
-        },
-      );
-    },
+  builder: (context, snapshot) {
+  if (snapshot.hasError) return _centerScaffold(title: 'ONLINE',
+  icon: Icons.error_outline, message: 'Gagal memuat ruang: ${snapshot.error}',
+  action: 'KE BERANDA');
+  if (!snapshot.hasData) return _centerScaffold(title: 'ONLINE',
+  icon: Icons.hourglass_bottom, message: 'Memuat ruang…', spinner: true);
+  if (snapshot.data!.isEmpty) return _centerScaffold(title: 'ONLINE',
+  icon: Icons.meeting_room_outlined,
+  message: 'Ruang tidak tersedia atau kamu sudah keluar.', action: 'KE BERANDA');
+  final room = snapshot.data!.first;
+  final status = room['status'] as String? ?? '';
+  if (status == 'waiting') return _lobby(room);
+  if (status == 'closed') return _centerScaffold(title: 'RUANG DIBUBARKAN',
+  icon: Icons.meeting_room_outlined,
+  message: 'Ruang telah dibubarkan oleh host.', action: 'KEMBALI KE BERANDA');
+  final rawState = room['state'];
+  if (rawState is! Map) return _centerScaffold(title: 'ONLINE',
+  icon: Icons.hourglass_bottom, message: 'Menunggu status pertandingan…', spinner: true);
+  final state = Map<String, dynamic>.from(rawState);
+  final acting = ((state['turn'] as num).toInt()-1)%2;
+  final uid = Supabase.instance.client.auth.currentUser?.id;
+  final isHost = uid == room['host_id'];
+  final canAct = acting == 0 ? isHost : uid == room['guest_id'];
+  final deadlineString = room['turn_deadline'] as String?;
+  return MatchArena(
+  title: 'Online • ${widget.roomCode}', state: state,
+  viewerSide: isHost ? 0 : 1,
+  canAct: canAct && !submitting && status == 'playing',
+  turnDeadline: deadlineString == null ? null : DateTime.tryParse(deadlineString)?.toUtc(),
+  onTimeout: status == 'playing' ? _expire : null,
+  onExit: () => Navigator.pop(context),
+  onSurrender: status == 'playing' && !submitting
+  ? () => _endRoom(disband:false) : null,
+  onDisband: status == 'playing' && isHost && !submitting
+  ? () => _endRoom(disband:true) : null,
+  onAction: ({int attack = 0, int defend = 0,
+  int reserve = 0, bool useSkill = false, int? swapTo}) async {
+  await _perform(() => service.submit(
+  id: widget.roomId,
+  revision: (room['revision'] as num).toInt(),
+  attack: attack, defend: defend, reserve: reserve,
+  useSkill: useSkill, swapTo: swapTo,
+  ));
+  },
+  );
+  },
   );
 }
 
 // ═════════════════════════════════════════════════════════════════
-//  PERTARUNGAN — tata letak ala "Jurassic World: The Game" versi kartu
+//  PERTARUNGAN — Open Broadcast HUD & Zero-Jank Command Deck
 // ═════════════════════════════════════════════════════════════════
 
 double _seg(double t, double a, double b) => ((t - a) / (b - a)).clamp(0.0, 1.0);
@@ -402,10 +403,9 @@ class _Ghost {
   const _Ghost(this.side, this.id, this.ko);
   final int side;
   final String id;
-  final bool ko; // true = tumbang, false = ditarik keluar (ganti tokoh)
+  final bool ko;
 }
 
-/// Ringkasan satu giliran yang baru selesai, diturunkan dari selisih state.
 class _Fx {
   const _Fx({required this.actor, required this.attackPts, required this.defend,
     required this.reserveSaved, required this.damage, required this.absorbed,
@@ -440,21 +440,20 @@ class _ScenePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height, cx = w / 2;
-    // kerucut lampu sorot
     final cone = Path()
-      ..moveTo(cx - 20, 0)..lineTo(cx + 20, 0)
-      ..lineTo(cx + w * .62, h * .74)..lineTo(cx - w * .62, h * .74)..close();
+      ..moveTo(cx - 24, 0)..lineTo(cx + 24, 0)
+      ..lineTo(cx + w * .65, h * .76)..lineTo(cx - w * .65, h * .76)..close();
     canvas.drawPath(cone, Paint()..shader = LinearGradient(
         begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        colors: [accent.withValues(alpha: .26), accent.withValues(alpha: .02)])
-        .createShader(Rect.fromLTWH(0, 0, w, h * .74)));
-    // lantai berperspektif
-    final fy = h * .5;
+        colors: [accent.withValues(alpha: .22), accent.withValues(alpha: .01)])
+        .createShader(Rect.fromLTWH(0, 0, w, h * .76)));
+
+    final fy = h * .52;
     canvas.drawRect(Rect.fromLTWH(0, fy, w, h - fy), Paint()..shader = LinearGradient(
         begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        colors: [Colors.transparent, Colors.black.withValues(alpha: .55)])
+        colors: [Colors.transparent, Colors.black.withValues(alpha: .6)])
         .createShader(Rect.fromLTWH(0, fy, w, h - fy)));
-    final grid = Paint()..color = accent.withValues(alpha: .07)..strokeWidth = 1;
+    final grid = Paint()..color = accent.withValues(alpha: .06)..strokeWidth = 1;
     for (var i = -6; i <= 6; i++) {
       canvas.drawLine(Offset(cx, fy), Offset(cx + i * w * .24, h), grid);
     }
@@ -462,21 +461,19 @@ class _ScenePainter extends CustomPainter {
       final y = fy + (h - fy) * (i * i / 16);
       canvas.drawLine(Offset(0, y), Offset(w, y), grid);
     }
-    // hujan
     final a = amb.value;
-    final rain = Paint()..strokeWidth = 1.1;
-    for (var i = 0; i < 58; i++) {
+    final rain = Paint()..strokeWidth = 1.05;
+    for (var i = 0; i < 46; i++) {
       final x = _frac(i * .6180339) * w;
       final y = _frac(i * .7549 + a * (2 + i % 3)) * h;
-      rain.color = const Color(0xFFBFD8FF).withValues(alpha: .07 + .08 * _frac(i * .37));
-      canvas.drawLine(Offset(x, y), Offset(x - 3, y + 15), rain);
+      rain.color = const Color(0xFFBFD8FF).withValues(alpha: .06 + .07 * _frac(i * .37));
+      canvas.drawLine(Offset(x, y), Offset(x - 3, y + 14), rain);
     }
-    // debu bercahaya
-    for (var i = 0; i < 14; i++) {
+    for (var i = 0; i < 12; i++) {
       final x = _frac(i * .413 + math.sin(a * math.pi * 2 + i) * .02) * w;
       final y = _frac(i * .271 - a) * h;
-      canvas.drawCircle(Offset(x, y), 1.6,
-          Paint()..color = shineGold.withValues(alpha: .25));
+      canvas.drawCircle(Offset(x, y), 1.5,
+          Paint()..color = shineGold.withValues(alpha: .24));
     }
   }
 
@@ -494,12 +491,12 @@ class _FloorPainter extends CustomPainter {
     for (var i = 0; i < centers.length; i++) {
       final c = centers[i];
       final rect = Rect.fromCenter(center: Offset(c.dx, c.dy + ch * .5 + 2),
-          width: cw * 1.25, height: ch * .12);
+          width: cw * 1.28, height: ch * .12);
       canvas.drawOval(rect.inflate(10), Paint()
-        ..color = accents[i].withValues(alpha: .28)
+        ..color = accents[i].withValues(alpha: .26)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 18));
       canvas.drawOval(rect, Paint()
-        ..color = Colors.black.withValues(alpha: .6)
+        ..color = Colors.black.withValues(alpha: .65)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
     }
   }
@@ -530,7 +527,7 @@ class _StagePainter extends CustomPainter {
   final AnimationController fxA;
   final _Fx? fx;
   final int leftSide;
-  final List<Offset> centers; // [kiri, kanan]
+  final List<Offset> centers;
   final double cw, ch;
   final List<double> shieldAmt, shieldAlpha, reserveAlpha;
   final List<int> reserves;
@@ -745,12 +742,6 @@ class _StagePainter extends CustomPainter {
       final p = _seg(t, 0, .6);
       final r = ch * .2 + ch * .5 * Curves.easeOut.transform(p);
       _ring(canvas, ac, r, shineMuted, 4, 1 - p);
-      for (var i = 0; i < 12; i++) {
-        final a = i * math.pi / 6;
-        final d = Offset(math.cos(a), math.sin(a));
-        canvas.drawLine(ac + d * r * .9, ac + d * r * 1.08, Paint()
-          ..strokeWidth = 2..color = Colors.white.withValues(alpha: (1 - p) * .8));
-      }
     }
 
     if (e.heal > 0) {
@@ -773,12 +764,6 @@ class _StagePainter extends CustomPainter {
         final p = _seg(t, .3, .85);
         if (p > 0) {
           _ring(canvas, gc, 10 + ch * .6 * Curves.easeOut.transform(p), shineEmber, 4, 1 - p);
-          for (var i = 0; i < 5; i++) {
-            final q = _seg(t, .3 + i * .04, .95);
-            canvas.drawCircle(Offset(gc.dx + math.sin(i * 1.9) * cw * .4,
-                gc.dy + ch * .3 - q * ch * .45), 14 + 14 * q,
-                Paint()..color = Colors.white.withValues(alpha: .18 * (1 - q)));
-          }
         }
       } else {
         final p = _seg(t, .4, .75);
@@ -791,7 +776,7 @@ class _StagePainter extends CustomPainter {
   bool shouldRepaint(covariant _StagePainter old) => true;
 }
 
-// ───────────── Kartu di panggung ─────────────
+// ───────────── Kartu di panggung & Open Broadcast HUD ─────────────
 
 class _CardFace extends StatelessWidget {
   const _CardFace({required this.spec, required this.accent, this.tint,
@@ -808,22 +793,22 @@ class _CardFace extends StatelessWidget {
       decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(18),
           boxShadow: [
-            BoxShadow(color: accent.withValues(alpha: .4), blurRadius: 26, spreadRadius: -3),
-            BoxShadow(color: Colors.black.withValues(alpha: .5), blurRadius: 14, offset: const Offset(0, 8)),
+            BoxShadow(color: accent.withValues(alpha: .42), blurRadius: 28, spreadRadius: -4),
+            BoxShadow(color: Colors.black.withValues(alpha: .6), blurRadius: 16, offset: const Offset(0, 10)),
           ]),
       child: Stack(fit: StackFit.expand, children: [
-        Portrait(spec, radius: 18),
+        Portrait(spec, radius: 18, borderColor: accent),
         Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(18),
             gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                stops: const [.62, 1], colors: [Colors.transparent, Colors.black.withValues(alpha: .88)])))),
-        Positioned(left: 8, right: 8, bottom: 8, child: Column(
+                stops: const [.6, 1], colors: [Colors.transparent, Colors.black.withValues(alpha: .9)])))),
+        Positioned(left: 8, right: 8, bottom: 9, child: Column(
             mainAxisSize: MainAxisSize.min, children: [
           Text(spec.name, maxLines: 1, overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center, style: const TextStyle(
                   fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: .5)),
           Text(spec.skill, maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 10, color: shineGold)),
+              style: const TextStyle(fontSize: 10, color: shineGold, fontWeight: FontWeight.w700)),
         ])),
         if (tint != null && tintAlpha > 0) Positioned.fill(child: IgnorePointer(
             child: DecoratedBox(decoration: BoxDecoration(
@@ -838,11 +823,14 @@ class _CardFace extends StatelessWidget {
   }
 }
 
-class _HudPlate extends StatelessWidget {
-  const _HudPlate({required this.team, required this.mirrored,
+/// HUD terbuka tanpa kotak tebal ("broadcast fighter overlay").
+class _FighterBroadcastHud extends StatelessWidget {
+  const _FighterBroadcastHud({
+    required this.team, required this.mirrored,
     required this.accent, required this.label, required this.isTurn,
-    this.big = false});
-  final Map<String,dynamic> team;
+    this.big = false,
+  });
+  final Map<String, dynamic> team;
   final bool mirrored, isTurn, big;
   final Color accent;
   final String label;
@@ -850,62 +838,128 @@ class _HudPlate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cards = team['cards'] as List;
-    final unit = Map<String,dynamic>.from(cards[(team['active'] as num).toInt()] as Map);
+    final unit = Map<String, dynamic>.from(cards[(team['active'] as num).toInt()] as Map);
     final spec = characterById(unit['id'] as String);
     final hp = (unit['hp'] as num).toInt();
     final maxHp = (unit['max_hp'] as num?)?.toInt() ?? spec.hp;
     final reserve = (team['reserve'] as num).toInt();
     final block = (team['block'] as num).toInt();
-    final end = mirrored ? CrossAxisAlignment.end : CrossAxisAlignment.start;
-    final info = Expanded(child: Column(crossAxisAlignment: end,
-        mainAxisAlignment: MainAxisAlignment.center, children: [
-          Text(label, style: TextStyle(color: accent, fontSize: 9,
-              fontWeight: FontWeight.w900, letterSpacing: 1.4)),
-          Text(spec.name.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: big ? 14 : 12,
-                  fontWeight: FontWeight.w900, letterSpacing: .6)),
-          const SizedBox(height: 3),
-          Row(mainAxisAlignment: mirrored ? MainAxisAlignment.end : MainAxisAlignment.start,
-              children: [
-                const Icon(Icons.add, size: 15, color: shineAzure),
-                Text('$hp', style: TextStyle(
-                    fontSize: big ? 21 : 17, fontWeight: FontWeight.w900)),
-              ]),
-          HpBar(hp: hp, maxHp: maxHp, height: 8, showText: false),
-          const SizedBox(height: 4),
-          Row(mainAxisAlignment: mirrored ? MainAxisAlignment.end : MainAxisAlignment.start,
-              children: [
-                const Icon(Icons.flash_on, size: 13, color: shineEmber),
-                Text('${spec.attack}', style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w900, color: shineEmber)),
-                const SizedBox(width: 8),
-                const Icon(Icons.inventory_2_outlined, size: 12, color: shineGold),
-                Text('$reserve', style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w900, color: shineGold)),
-                const SizedBox(width: 8),
-                const Icon(Icons.shield_outlined, size: 12, color: shineAzure),
-                Text('$block', style: const TextStyle(
-                    fontSize: 12, fontWeight: FontWeight.w900, color: shineAzure)),
-              ]),
-        ]));
-    final thumb = Portrait(spec, width: big ? 66 : 54, height: big ? 88 : 72, radius: 10);
-    return Container(
-      padding: const EdgeInsets.all(6),
+    final align = mirrored ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final rowAlign = mirrored ? MainAxisAlignment.end : MainAxisAlignment.start;
+
+    final avatar = Container(
       decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          gradient: LinearGradient(
-              begin: mirrored ? Alignment.centerRight : Alignment.centerLeft,
-              end: mirrored ? Alignment.centerLeft : Alignment.centerRight,
-              colors: [accent.withValues(alpha: .38), const Color(0xCC12101C)]),
-          border: Border.all(color: accent.withValues(alpha: isTurn ? .95 : .35),
-              width: isTurn ? 1.8 : 1),
-          boxShadow: isTurn
-              ? [BoxShadow(color: accent.withValues(alpha: .4), blurRadius: 18, spreadRadius: -2)] : null),
-      child: Row(children: mirrored
-          ? [info, const SizedBox(width: 8), thumb]
-          : [thumb, const SizedBox(width: 8), info]),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: isTurn
+            ? [BoxShadow(color: accent.withValues(alpha: .55), blurRadius: 16, spreadRadius: -2)]
+            : null,
+      ),
+      child: Portrait(
+        spec,
+        width: big ? 58 : 46,
+        height: big ? 76 : 62,
+        radius: 11,
+        borderColor: isTurn ? accent : Colors.white24,
+      ),
+    );
+
+    final stats = Expanded(
+      child: Column(
+        crossAxisAlignment: align,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Row(
+            mainAxisAlignment: rowAlign,
+            children: [
+              if (!mirrored && isTurn)
+                Container(
+                  width: 6, height: 6,
+                  margin: const EdgeInsets.only(right: 5),
+                  decoration: BoxDecoration(color: accent, shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: accent, blurRadius: 6)]),
+                ),
+              Text(label, style: TextStyle(
+                  color: accent, fontSize: 9.5,
+                  fontWeight: FontWeight.w900, letterSpacing: 1.8)),
+              if (mirrored && isTurn)
+                Container(
+                  width: 6, height: 6,
+                  margin: const EdgeInsets.only(left: 5),
+                  decoration: BoxDecoration(color: accent, shape: BoxShape.circle,
+                      boxShadow: [BoxShadow(color: accent, blurRadius: 6)]),
+                ),
+            ],
+          ),
+          const SizedBox(height: 1),
+          Row(
+            mainAxisAlignment: rowAlign,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              if (!mirrored) ...[
+                Flexible(
+                  child: Text(spec.name.toUpperCase(), maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: big ? 15 : 12.5,
+                          fontWeight: FontWeight.w900, letterSpacing: .5)),
+                ),
+                const SizedBox(width: 8),
+                Text('$hp', style: TextStyle(
+                    fontSize: big ? 20 : 16, fontWeight: FontWeight.w900,
+                    color: shineJade)),
+                Text('/$maxHp', style: const TextStyle(fontSize: 10, color: shineMuted)),
+              ] else ...[
+                Text('$hp', style: TextStyle(
+                    fontSize: big ? 20 : 16, fontWeight: FontWeight.w900,
+                    color: shineJade)),
+                Text('/$maxHp', style: const TextStyle(fontSize: 10, color: shineMuted)),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(spec.name.toUpperCase(), maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: big ? 15 : 12.5,
+                          fontWeight: FontWeight.w900, letterSpacing: .5)),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 5),
+          HpBar(hp: hp, maxHp: maxHp, height: big ? 9 : 7.5,
+              showText: false, mirrored: mirrored),
+          const SizedBox(height: 5),
+          Row(
+            mainAxisAlignment: rowAlign,
+            children: [
+              _miniStat(Icons.flash_on_rounded, '${spec.attack}', shineEmber),
+              const SizedBox(width: 10),
+              _miniStat(Icons.bolt_rounded, '$reserve PA', shineGold),
+              const SizedBox(width: 10),
+              _miniStat(Icons.shield_rounded, '$block', shineAzure),
+            ],
+          ),
+        ],
+      ),
+    );
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: mirrored
+            ? [stats, const SizedBox(width: 10), avatar]
+            : [avatar, const SizedBox(width: 10), stats],
+      ),
     );
   }
+
+  Widget _miniStat(IconData icon, String text, Color color) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 12, color: color),
+      const SizedBox(width: 2),
+      Text(text, style: TextStyle(
+          fontSize: 11, fontWeight: FontWeight.w900, color: color)),
+    ],
+  );
 }
 
 class _HexPainter extends CustomPainter {
@@ -915,21 +969,21 @@ class _HexPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final c = size.center(Offset.zero);
-    final base = enabled ? color : const Color(0xFF6B6880);
+    final base = enabled ? color : const Color(0xFF4A465C);
     final path = _hexPath(c, size.width / 2 - 2, size.height / 2 - 2, flat: true);
-    if (active) {
-      canvas.drawPath(path, Paint()..color = base.withValues(alpha: .75)
+    if (active && enabled) {
+      canvas.drawPath(path, Paint()..color = base.withValues(alpha: .7)
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12));
     }
     canvas.drawPath(path, Paint()..shader = LinearGradient(
         begin: Alignment.topCenter, end: Alignment.bottomCenter,
-        colors: [Color.lerp(base, Colors.white, .35)!, base,
-          Color.lerp(base, Colors.black, .45)!]).createShader(Offset.zero & size));
-    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = 2.6
-      ..color = Colors.white.withValues(alpha: enabled ? .9 : .4));
-    canvas.drawPath(_hexPath(c, size.width / 2 - 9, size.height / 2 - 8, flat: true),
-        Paint()..style = PaintingStyle.stroke..strokeWidth = 1.4
-          ..color = Colors.white.withValues(alpha: .5));
+        colors: [Color.lerp(base, Colors.white, .32)!, base,
+          Color.lerp(base, Colors.black, .48)!]).createShader(Offset.zero & size));
+    canvas.drawPath(path, Paint()..style = PaintingStyle.stroke..strokeWidth = 2.2
+      ..color = Colors.white.withValues(alpha: enabled ? .88 : .28));
+    canvas.drawPath(_hexPath(c, size.width / 2 - 8, size.height / 2 - 7, flat: true),
+        Paint()..style = PaintingStyle.stroke..strokeWidth = 1.1
+          ..color = Colors.white.withValues(alpha: enabled ? .42 : .15));
   }
   @override
   bool shouldRepaint(covariant _HexPainter old) =>
@@ -951,48 +1005,49 @@ class _HexButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Column(mainAxisSize: MainAxisSize.min, children: [
-    SizedBox(width: 76 * scale, height: 66 * scale, child: GestureDetector(
+    SizedBox(width: 74 * scale, height: 64 * scale, child: GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: enabled ? onTap : null, onLongPress: enabled ? onLongPress : null,
       child: MouseRegion(
         cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
         child: AnimatedScale(
-          duration: const Duration(milliseconds: 160), scale: count > 0 ? 1.06 : 1,
+          duration: const Duration(milliseconds: 150),
+          scale: count > 0 && enabled ? 1.06 : 1,
           child: Stack(children: [
             Positioned.fill(child: CustomPaint(painter: _HexPainter(color, count > 0, enabled))),
             Center(child: cooldown > 0
                 ? Column(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.hourglass_bottom, color: Colors.white70, size: 20),
+              const Icon(Icons.hourglass_bottom, color: Colors.white70, size: 18),
               Text('$cooldown', style: const TextStyle(color: Colors.white,
-                  fontWeight: FontWeight.w900, fontSize: 15)),
+                  fontWeight: FontWeight.w900, fontSize: 14)),
             ])
-                : Icon(icon, color: Colors.white, size: 31 * scale,
+                : Icon(icon, color: Colors.white, size: 29 * scale,
                 shadows: const [Shadow(color: Colors.black54, blurRadius: 6)])),
             Positioned(right: 0, bottom: 0, child: Container(
-                constraints: const BoxConstraints(minWidth: 26),
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: const Color(0xFF12101C),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: color, width: 1.6)),
+                constraints: const BoxConstraints(minWidth: 25),
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                decoration: BoxDecoration(color: const Color(0xFF0E0C17),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: enabled ? color : Colors.white24, width: 1.4)),
                 child: Text(badgeText ?? '$count', textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white,
-                        fontWeight: FontWeight.w900, fontSize: 13)))),
-            if (onMinus != null && count > 0) Positioned(left: 0, top: 0,
+                        fontWeight: FontWeight.w900, fontSize: 12)))),
+            if (onMinus != null && count > 0 && enabled) Positioned(left: 0, top: 0,
                 child: GestureDetector(onTap: onMinus, child: Container(
-                    width: 24, height: 24,
-                    decoration: BoxDecoration(color: const Color(0xFF12101C), shape: BoxShape.circle,
+                    width: 22, height: 22,
+                    decoration: BoxDecoration(color: const Color(0xFF0E0C17), shape: BoxShape.circle,
                         border: Border.all(color: Colors.white70)),
-                    child: const Icon(Icons.remove, size: 15, color: Colors.white)))),
+                    child: const Icon(Icons.remove, size: 14, color: Colors.white)))),
           ]),
         ),
       ),
     )),
     const SizedBox(height: 4),
-    SizedBox(width: 82 * scale, child: Text(label, maxLines: 2,
+    SizedBox(width: 80 * scale, child: Text(label, maxLines: 1,
         textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
-        style: TextStyle(fontSize: 10, height: 1.1,
+        style: TextStyle(fontSize: 9.5, height: 1.1,
             fontWeight: FontWeight.w900, letterSpacing: .6,
-            color: enabled ? Color.lerp(color, Colors.white, .35) : Colors.white38))),
+            color: enabled ? Color.lerp(color, Colors.white, .38) : Colors.white30))),
   ]);
 }
 
@@ -1030,14 +1085,14 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   int _turnTotal = 30;
   bool _resultReady = false;
   _Fx? _event;
-  bool _wide = false; // diperbarui di build(): true bila layar lebar (dock kontrol di kanan)
-  bool _short = false; // layar sangat pendek (ponsel landscape): HUD diringkas
+  bool _wide = false;
+  bool _short = false;
   late final AnimationController _fxC = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1900));
+      vsync: this, duration: const Duration(milliseconds: 1850));
   late final AnimationController _amb = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 3000));
   late final AnimationController _bannerC = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1800));
+      vsync: this, duration: const Duration(milliseconds: 1700));
 
   int get remainingSeconds => widget.turnDeadline == null ? 0 : math.max(0,
       (widget.turnDeadline!.difference(DateTime.now().toUtc()).inMilliseconds / 1000).ceil());
@@ -1045,15 +1100,16 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   int get activeSide => (turn-1)%2;
   List<dynamic> get teams => widget.state['teams'] as List<dynamic>;
   Map<String,dynamic> _team(int side) => Map<String,dynamic>.from(teams[side] as Map);
-  Map<String,dynamic> get own => _team(activeSide);
+  // Gunakan tim viewer sendiri saat tidak sedang aktif agar tombol komando tidak berkedip ganti nama skill lawan
+  int get _commandSide => _personal ? widget.viewerSide : activeSide;
+  Map<String,dynamic> get own => _team(_commandSide);
   Map<String,dynamic> get ownCard => Map<String,dynamic>.from((own['cards'] as List)[(own['active'] as num).toInt()] as Map);
   CharacterSpec get spec => characterById(ownCard['id'] as String);
   int get available => math.min(8, math.min(turn,4)+(own['reserve'] as num).toInt());
   int get spent => attack+defend+reserve+(skill ? spec.cost : 0);
-  int get foeBlock => (_team(1-activeSide)['block'] as num).toInt();
+  int get foeBlock => (_team(1-_commandSide)['block'] as num).toInt();
   bool get _offensive => const {'damage','pierce','recoil','conditional_damage','hybrid'}.contains(spec.kind);
   bool get _personal => widget.isBotMatch || widget.onReplay == null;
-  // Sisi kiri layar: pemain sendiri; pada hotseat selalu Tim A.
   int get _left => _personal ? widget.viewerSide : 0;
   int get _right => 1 - _left;
   bool get _planning => widget.canAct && widget.state['winner'] == null;
@@ -1117,11 +1173,11 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
           HapticFeedback.selectionClick();
         }
       }
-      _playBanner(delayMs: fx == null ? 0 : 1500);
+      _playBanner(delayMs: fx == null ? 0 : 1450);
     }
     if (oldWidget.state['winner'] == null && widget.state['winner'] != null) {
       _resultTimer?.cancel();
-      _resultTimer = Timer(const Duration(milliseconds: 1800), () {
+      _resultTimer = Timer(const Duration(milliseconds: 1750), () {
         if (mounted) setState(() => _resultReady = true);
       });
     }
@@ -1133,7 +1189,6 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     }
   }
 
-  /// Menurunkan kejadian giliran dari log dan selisih HP/PA kedua state.
   _Fx? _buildFx(Map<String,dynamic> oldS, Map<String,dynamic> newS) {
     try {
       final oldTurn = (oldS['turn'] as num).toInt();
@@ -1474,8 +1529,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     final cards = team['cards'] as List;
     final active = (team['active'] as num).toInt();
     final tappable = _planning && !busy && side == activeSide;
-    final accent = side == _left ? shineAzure : shineEmber;
-    return Positioned(top: 8, left: left ? 6 : null, right: left ? null : 6,
+    return Positioned(top: 10, left: left ? 8 : null, right: left ? null : 8,
         child: Column(children: [
           for (var i = 0; i < 3; i++) if (i != active) Builder(builder: (context) {
             final f = Map<String,dynamic>.from(cards[i] as Map);
@@ -1486,26 +1540,26 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
             return Padding(padding: const EdgeInsets.only(bottom: 8),
                 child: GestureDetector(
                   onTap: tappable && alive ? () => _confirmSwap(i) : null,
-                  child: Opacity(opacity: alive ? 1 : .4, child: Container(
-                    width: _wide ? 62 : 50, height: _wide ? 86 : 70,
-                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(11),
+                  child: Opacity(opacity: alive ? 1 : .35, child: Container(
+                    width: _wide ? 58 : 46, height: _wide ? 80 : 64,
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(10),
                         boxShadow: tappable && alive
-                            ? [BoxShadow(color: shineGold.withValues(alpha: .5), blurRadius: 12)]
+                            ? [BoxShadow(color: shineGold.withValues(alpha: .45), blurRadius: 10)]
                             : null),
                     child: Stack(fit: StackFit.expand, children: [
-                      Portrait(sp, radius: 11),
+                      Portrait(sp, radius: 10),
                       Positioned(left: 4, right: 4, bottom: 4, child: ClipRRect(
                           borderRadius: BorderRadius.circular(3),
                           child: LinearProgressIndicator(
                               value: maxHp == 0 ? 0 : (hp / maxHp).clamp(0.0, 1.0),
-                              minHeight: 4, backgroundColor: Colors.black54,
+                              minHeight: 3.5, backgroundColor: Colors.black54,
                               color: hp / maxHp > .3 ? shineJade : shineEmber))),
                       if (!alive) const Center(child: Text('KO', style: TextStyle(
-                          color: shineEmber, fontWeight: FontWeight.w900, fontSize: 16))),
+                          color: shineEmber, fontWeight: FontWeight.w900, fontSize: 14))),
                       if (tappable && alive) Positioned(top: 2, right: 2, child: Container(
                           padding: const EdgeInsets.all(2),
                           decoration: const BoxDecoration(color: shineGold, shape: BoxShape.circle),
-                          child: const Icon(Icons.swap_horiz, size: 11, color: Colors.black))),
+                          child: const Icon(Icons.swap_horiz, size: 10, color: Colors.black))),
                     ]),
                   )),
                 ));
@@ -1573,11 +1627,11 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                 padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 24),
                 decoration: BoxDecoration(
                     gradient: LinearGradient(colors: [
-                      Colors.transparent, color.withValues(alpha: .7),
-                      Color.lerp(color, Colors.black, .5)!.withValues(alpha: .9),
-                      color.withValues(alpha: .7), Colors.transparent]),
+                      Colors.transparent, color.withValues(alpha: .72),
+                      Color.lerp(color, Colors.black, .5)!.withValues(alpha: .92),
+                      color.withValues(alpha: .72), Colors.transparent]),
                     border: Border.symmetric(horizontal: BorderSide(
-                        color: Colors.white.withValues(alpha: .6), width: 1.5))),
+                        color: Colors.white.withValues(alpha: .6), width: 1.4))),
                 child: Transform(transform: Matrix4.skewX(.22), alignment: Alignment.center,
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
                       Text(text, textAlign: TextAlign.center, style: TextStyle(
@@ -1596,91 +1650,135 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
         final outt = Curves.easeIn.transform(_seg(p, .78, 1));
         return _skewBanner(text: _turnLabel, sub: 'GILIRAN $turn', color: _accent,
             dx: -s.width * 1.1 * inn + s.width * 1.1 * outt,
-            opacity: 1 - outt * .5, fontSize: 28);
+            opacity: 1 - outt * .5, fontSize: 26);
       }));
 
-  // ───────────── Layout ─────────────
+  // ───────────── Header HUD Terpadu (Tanpa Kotak Berlapis) ─────────────
 
-  Widget _timerHex() {
+  Widget _centerVsClock() {
     final has = widget.turnDeadline != null && widget.state['winner'] == null;
     final frac = (remainingSeconds / _turnTotal).clamp(0.0, 1.0);
     final urgent = has && remainingSeconds <= 10;
-    final color = urgent ? shineEmber : shineGold;
+    final color = urgent ? shineEmber : _accent;
     return GestureDetector(
-        onTap: _showMenu,
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          SizedBox(width: 54, height: 54, child: Stack(fit: StackFit.expand, children: [
-            Container(decoration: BoxDecoration(shape: BoxShape.circle,
-                color: const Color(0xFF12101C),
-                boxShadow: [BoxShadow(color: color.withValues(alpha: urgent ? .6 : .25), blurRadius: 14)])),
-            if (has) CircularProgressIndicator(value: frac, strokeWidth: 4,
-                backgroundColor: Colors.white12, color: color),
-            Center(child: has
-                ? Text('$remainingSeconds', style: TextStyle(fontWeight: FontWeight.w900,
-                fontSize: 17, color: color))
-                : const Icon(Icons.pause_rounded, color: shineGold)),
-          ])),
-          const SizedBox(height: 2),
-          Text('GILIRAN $turn', style: const TextStyle(fontSize: 9, letterSpacing: 1.5,
-              color: shineMuted, fontWeight: FontWeight.w800)),
-          const Icon(Icons.menu, size: 12, color: shineMuted),
-        ]));
+      onTap: _showMenu,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SizedBox(
+            width: 48, height: 48,
+            child: Stack(fit: StackFit.expand, children: [
+              Container(decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.black.withValues(alpha: .55),
+                border: Border.all(color: color.withValues(alpha: .4)),
+                boxShadow: [BoxShadow(color: color.withValues(alpha: urgent ? .55 : .2), blurRadius: 12)],
+              )),
+              if (has)
+                CircularProgressIndicator(value: frac, strokeWidth: 3.2,
+                    backgroundColor: Colors.white10, color: color),
+              Center(
+                child: has
+                    ? Text('$remainingSeconds', style: TextStyle(
+                    fontWeight: FontWeight.w900, fontSize: 15, color: color))
+                    : Text('G$turn', style: const TextStyle(
+                    fontWeight: FontWeight.w900, fontSize: 13, color: shineGold)),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 3),
+          Text(has ? 'GILIRAN $turn' : 'MENU', style: const TextStyle(
+              fontSize: 8.5, letterSpacing: 1.5, color: shineMuted, fontWeight: FontWeight.w900)),
+        ],
+      ),
+    );
   }
 
-  Widget _hud() => SizedBox(height: _short ? 88 : (_wide ? 112 : 96), child: Padding(
-      padding: EdgeInsets.fromLTRB(_wide ? 16 : 8, 6, _wide ? 16 : 8, 0),
-      child: Row(children: [
-        Expanded(child: _HudPlate(team: _team(_left), mirrored: false, accent: shineAzure,
-            label: _sideLabel(_left), big: _wide && !_short,
-            isTurn: widget.state['winner'] == null && activeSide == _left)),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: _timerHex()),
-        Expanded(child: _HudPlate(team: _team(_right), mirrored: true, accent: shineEmber,
-            label: _sideLabel(_right), big: _wide && !_short,
-            isTurn: widget.state['winner'] == null && activeSide == _right)),
-      ])));
-
-  /// Bilah atas: tombol menu yang jelas, status giliran, dan riwayat.
-  Widget _topBar() {
+  Widget _broadcastHeader() {
     final over = widget.state['winner'] != null;
     final color = over ? shineGold : _accent;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
-      child: SizedBox(height: 44, child: Row(children: [
-        IconButton(tooltip: 'Menu pertandingan', onPressed: _showMenu,
-            icon: const Icon(Icons.menu_rounded, color: shineGold)),
-        Expanded(child: Center(child: AnimatedContainer(
-          duration: const Duration(milliseconds: 300),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: .14),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: color.withValues(alpha: .6)),
+      padding: EdgeInsets.fromLTRB(_wide ? 20 : 10, 4, _wide ? 20 : 10, 4),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Baris tipis navigasi & status giliran
+          SizedBox(
+            height: 36,
+            child: Row(children: [
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'Menu pertandingan',
+                onPressed: _showMenu,
+                icon: const Icon(Icons.menu_rounded, color: shineGold, size: 21),
+              ),
+              Expanded(
+                child: Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Container(
+                        width: 7, height: 7,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle, color: color,
+                          boxShadow: [BoxShadow(color: color, blurRadius: 8)],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(_turnLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900,
+                                letterSpacing: 2.2, color: color)),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              if (widget.history.isEmpty)
+                const SizedBox(width: 40)
+              else
+                IconButton(
+                  visualDensity: VisualDensity.compact,
+                  tooltip: 'Riwayat pertarungan',
+                  onPressed: _showHistory,
+                  icon: const Icon(Icons.history_rounded, color: shineGold, size: 20),
+                ),
+            ]),
           ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 8, height: 8, decoration: BoxDecoration(
-                shape: BoxShape.circle, color: color,
-                boxShadow: [BoxShadow(color: color, blurRadius: 8)])),
-            const SizedBox(width: 8),
-            Flexible(child: Text(_turnLabel, maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900,
-                    letterSpacing: 1.8))),
-          ]),
-        ))),
-        if (widget.history.isEmpty)
-          const SizedBox(width: 48)
-        else
-          IconButton(tooltip: 'Riwayat pertarungan', onPressed: _showHistory,
-              icon: const Icon(Icons.history_rounded, color: shineGold)),
-      ])),
+          // Baris Fighter HUD Kiri vs Kanan tanpa kartu kotak
+          SizedBox(
+            height: _short ? 76 : (_wide ? 92 : 82),
+            child: Row(children: [
+              Expanded(
+                child: _FighterBroadcastHud(
+                  team: _team(_left), mirrored: false, accent: shineAzure,
+                  label: _sideLabel(_left), big: _wide && !_short,
+                  isTurn: !over && activeSide == _left,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                child: _centerVsClock(),
+              ),
+              Expanded(
+                child: _FighterBroadcastHud(
+                  team: _team(_right), mirrored: true, accent: shineEmber,
+                  label: _sideLabel(_right), big: _wide && !_short,
+                  isTurn: !over && activeSide == _right,
+                ),
+              ),
+            ]),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _stage(Size s) {
-    var cw = math.min(s.width * (_wide ? .30 : .36), _wide ? 250.0 : 170.0);
+    var cw = math.min(s.width * (_wide ? .29 : .35), _wide ? 245.0 : 168.0);
     var ch = cw / .64;
-    if (ch > s.height * .86) { ch = s.height * .86; cw = ch * .64; }
-    final cy = s.height * .53;
+    if (ch > s.height * .84) { ch = s.height * .84; cw = ch * .64; }
+    final cy = s.height * .52;
     final sx = _wide ? .32 : .30;
     final lc = Offset(s.width * sx, cy), rc = Offset(s.width * (1 - sx), cy);
     final gap = rc.dx - lc.dx;
@@ -1723,15 +1821,18 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
       final order = fx != null && fx.actor == _left ? [_right, _left] : [_left, _right];
       final skillP = fx != null && fx.skill ? _seg(t, 0, .8) : 0.0;
       return Transform.translate(offset: shake, child: Stack(clipBehavior: Clip.none, children: [
-        Positioned.fill(child: CustomPaint(painter: _FloorPainter(
-            [lc, rc], cw, ch, [shineAzure, shineEmber]))),
+        Positioned.fill(child: RepaintBoundary(
+          child: CustomPaint(painter: _FloorPainter([lc, rc], cw, ch, [shineAzure, shineEmber])),
+        )),
         for (final side in order)
           _slot(side, centerOf(side), cw, ch, poses[side == _left ? 0 : 1], fx, t),
-        Positioned.fill(child: IgnorePointer(child: CustomPaint(painter: _StagePainter(
-            ambA: _amb, fxA: _fxC, fx: fx, leftSide: _left, centers: [lc, rc],
-            cw: cw, ch: ch, shieldAmt: shAmt, shieldAlpha: shAl, reserves: rs,
-            reserveAlpha: rsAl, aim: aim, aimSide: 1 - activeSide,
-            skillAura: _planning && !busy && skill && fx == null, auraSide: activeSide)))),
+        Positioned.fill(child: IgnorePointer(child: RepaintBoundary(
+          child: CustomPaint(painter: _StagePainter(
+              ambA: _amb, fxA: _fxC, fx: fx, leftSide: _left, centers: [lc, rc],
+              cw: cw, ch: ch, shieldAmt: shAmt, shieldAlpha: shAl, reserves: rs,
+              reserveAlpha: rsAl, aim: aim, aimSide: 1 - activeSide,
+              skillAura: _planning && !busy && skill && fx == null, auraSide: activeSide)),
+        ))),
         if (fx != null) ..._floats(t, fx, centerOf, ch),
         if (skillP > 0 && skillP < 1) Positioned(left: 0, right: 0, top: s.height * .36,
             child: _skewBanner(text: fx!.skillName.toUpperCase(), sub: 'SKILL AKTIF',
@@ -1742,7 +1843,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
             child: ColoredBox(color: Colors.white.withValues(alpha: flashA.clamp(0.0, 1.0))))),
         if (aim > 0) Positioned(left: centerOf(1 - activeSide).dx - 60,
             top: centerOf(1 - activeSide).dy - ch / 2 - 10, width: 120,
-            child: Center(child: StatPill('~$_previewDamage damage',
+            child: Center(child: StatPill('~$_previewDamage DMG',
                 icon: Icons.flash_on, color: shineEmber))),
         _bench(_left, true), _bench(_right, false),
         _turnBanner(s),
@@ -1750,7 +1851,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     });
   }
 
-  Widget _pips() {
+  Widget _pips(bool canPlay) {
     final colors = <Color>[
       for (var i = 0; i < attack; i++) shineEmber,
       for (var i = 0; i < defend; i++) shineAzure,
@@ -1760,137 +1861,174 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     return Wrap(spacing: 5, runSpacing: 5, children: [
       for (var i = 0; i < available; i++)
         AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: 14, height: 14,
+          duration: const Duration(milliseconds: 180),
+          width: 12, height: 12,
           decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: i < colors.length ? colors[i] : Colors.transparent,
-              border: Border.all(color: i < colors.length ? colors[i] : Colors.white24, width: 1.5),
-              boxShadow: i < colors.length
-                  ? [BoxShadow(color: colors[i].withValues(alpha: .55), blurRadius: 8)] : null),
+              color: canPlay && i < colors.length ? colors[i] : Colors.transparent,
+              border: Border.all(
+                  color: canPlay && i < colors.length ? colors[i] : Colors.white24,
+                  width: 1.4),
+              boxShadow: canPlay && i < colors.length
+                  ? [BoxShadow(color: colors[i].withValues(alpha: .5), blurRadius: 6)] : null),
         ),
     ]);
   }
 
-  Widget _controls(bool canPlay, {bool dock = false}) {
+  /// Dek Komando dengan tinggi yang 100% stabil baik saat giliran sendiri maupun giliran lawan.
+  /// Mencegah layout jump / patah animasi ketika aksi baru saja dieksekusi.
+  Widget _commandDeck(bool canPlay, {bool dock = false}) {
     final cd = (ownCard['cd'] as num).toInt();
     final issue = _issue;
     final left = available - spent;
-    final scale = dock ? 1.1 : 1.0;
-    final hint = issue ?? (skill ? skillText(spec)
-        : 'Ketuk heksagon untuk menambah PA • tahan untuk mengisi sisa');
+    final scale = dock ? 1.08 : 1.0;
+    final over = widget.state['winner'] != null;
+
+    final String statusHint;
+    if (over) {
+      statusHint = 'Pertandingan telah berakhir.';
+    } else if (!canPlay) {
+      statusHint = widget.isBotMatch
+          ? 'Komputer sedang mengeksekusi langkah…'
+          : 'Menunggu aksi dan sinkronisasi lawan…';
+    } else {
+      statusHint = issue ?? (skill ? skillText(spec)
+          : 'Ketuk heksagon untuk alokasi PA • tahan untuk isi penuh');
+    }
+
     return Container(
-      padding: EdgeInsets.fromLTRB(dock ? 18 : 14, dock ? 18 : 10, dock ? 18 : 14, dock ? 18 : 10),
+      padding: EdgeInsets.fromLTRB(dock ? 20 : 14, dock ? 18 : 8, dock ? 20 : 14, dock ? 18 : 10),
       decoration: dock ? null : BoxDecoration(
           gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [Color(0xE61A1727), Color(0xF20E0C16)]),
-          border: Border(top: BorderSide(color: _accent.withValues(alpha: .5))),
-          boxShadow: [BoxShadow(color: _accent.withValues(alpha: .2), blurRadius: 24, offset: const Offset(0, -6))]),
+              colors: [Color(0x000B0A12), Color(0xD90E0C18), Color(0xF5090811)],
+              stops: [0.0, 0.22, 1.0]),
+          border: Border(top: BorderSide(color: _accent.withValues(alpha: .28)))),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
+        // Baris Indikator PA & Status
         Row(children: [
-          Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(color: Colors.black.withValues(alpha: .45),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: (left == 0 ? shineJade : shineGold).withValues(alpha: .7))),
-              child: Row(mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.baseline,
-                  textBaseline: TextBaseline.alphabetic, children: [
-                    const Text('PA ', style: TextStyle(fontSize: 10, color: shineMuted,
-                        fontWeight: FontWeight.w900, letterSpacing: 1.5)),
-                    Text('$left', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900,
-                        color: left == 0 ? shineJade : (left < 0 ? shineEmber : Colors.white))),
-                    Text(' /$available', style: const TextStyle(fontSize: 14, color: shineMuted)),
-                  ])),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              const Text('PA ', style: TextStyle(fontSize: 10, color: shineMuted,
+                  fontWeight: FontWeight.w900, letterSpacing: 1.5)),
+              Text(canPlay ? '$left' : '-', style: TextStyle(
+                  fontSize: 22, fontWeight: FontWeight.w900,
+                  color: !canPlay ? shineMuted : (left == 0 ? shineJade : (left < 0 ? shineEmber : Colors.white)))),
+              Text(' /$available', style: const TextStyle(fontSize: 12.5, color: shineMuted)),
+            ],
+          ),
           const SizedBox(width: 12),
-          Expanded(child: _pips()),
+          Expanded(child: _pips(canPlay)),
           IconButton(
             tooltip: 'Atur ulang alokasi PA',
             visualDensity: VisualDensity.compact,
             onPressed: canPlay ? () => setState(reset) : null,
-            icon: const Icon(Icons.restart_alt_rounded, color: shineMuted),
+            icon: const Icon(Icons.restart_alt_rounded, color: shineMuted, size: 19),
           ),
         ]),
-        const SizedBox(height: 6),
-        AnimatedSwitcher(duration: const Duration(milliseconds: 200),
-            child: Text(hint, key: ValueKey(hint), textAlign: TextAlign.center,
-                maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: dock ? 12.5 : 11.5, height: 1.3,
-                    color: issue != null && spent == available ? shineEmber : shineMuted))),
-        SizedBox(height: dock ? 14 : 8),
-        FittedBox(fit: BoxFit.scaleDown, child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _HexButton(icon: Icons.inventory_2_outlined, color: const Color(0xFFFF9F1C),
-              label: 'CADANGKAN', count: reserve, enabled: canPlay, scale: scale,
-              onTap: () => _add('r'), onLongPress: () => _add('r', fill: true),
-              onMinus: () => setState(() => reserve--)),
-          const SizedBox(width: 8),
-          _HexButton(icon: Icons.shield, color: const Color(0xFF2E7DFF),
-              label: 'BERTAHAN', count: defend, enabled: canPlay, scale: scale,
-              onTap: () => _add('d'), onLongPress: () => _add('d', fill: true),
-              onMinus: () => setState(() => defend--)),
-          const SizedBox(width: 8),
-          _HexButton(icon: Icons.flash_on, color: const Color(0xFFE53545),
-              label: 'SERANG', count: attack, enabled: canPlay, scale: scale,
-              onTap: () => _add('a'), onLongPress: () => _add('a', fill: true),
-              onMinus: () => setState(() => attack--)),
-          const SizedBox(width: 8),
-          _HexButton(icon: Icons.auto_awesome, color: const Color(0xFF8E5BFF),
-              label: spec.skill.toUpperCase(), count: skill ? 1 : 0, scale: scale,
-              badgeText: skill ? '✓' : '${spec.cost}PA', cooldown: cd,
-              enabled: canPlay && cd == 0, onTap: () => _toggleSkill(!skill)),
-        ])),
-        SizedBox(height: dock ? 18 : 10),
-        ShineButton(icon: Icons.check_circle_outline, label: 'JALANKAN AKSI',
-            height: dock ? 58 : 50,
-            onPressed: issue == null && canPlay ? () => submit() : null),
+        // Baris teks petunjuk dengan tinggi konstan (32px) agar tidak mendorong panggung
+        SizedBox(
+          height: 32,
+          child: Center(
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: Row(
+                key: ValueKey(statusHint),
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (!canPlay && !over) ...[
+                    const SizedBox(
+                      width: 12, height: 12,
+                      child: CircularProgressIndicator(strokeWidth: 1.8, color: shineGold),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  Flexible(
+                    child: Text(
+                      statusHint,
+                      textAlign: TextAlign.center,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: dock ? 12 : 11,
+                        height: 1.25,
+                        color: canPlay && issue != null && spent == available
+                            ? shineEmber
+                            : shineMuted,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: dock ? 12 : 4),
+        // Baris Tombol Heksagon — tetap dirender dengan ukuran sama saat giliran lawan
+        IgnorePointer(
+          ignoring: !canPlay,
+          child: AnimatedOpacity(
+            duration: const Duration(milliseconds: 240),
+            opacity: canPlay ? 1.0 : 0.42,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _HexButton(icon: Icons.inventory_2_outlined, color: const Color(0xFFFF9F1C),
+                      label: 'CADANGKAN', count: reserve, enabled: canPlay, scale: scale,
+                      onTap: () => _add('r'), onLongPress: () => _add('r', fill: true),
+                      onMinus: () => setState(() => reserve--)),
+                  const SizedBox(width: 8),
+                  _HexButton(icon: Icons.shield, color: const Color(0xFF2E7DFF),
+                      label: 'BERTAHAN', count: defend, enabled: canPlay, scale: scale,
+                      onTap: () => _add('d'), onLongPress: () => _add('d', fill: true),
+                      onMinus: () => setState(() => defend--)),
+                  const SizedBox(width: 8),
+                  _HexButton(icon: Icons.flash_on, color: const Color(0xFFE53545),
+                      label: 'SERANG', count: attack, enabled: canPlay, scale: scale,
+                      onTap: () => _add('a'), onLongPress: () => _add('a', fill: true),
+                      onMinus: () => setState(() => attack--)),
+                  const SizedBox(width: 8),
+                  _HexButton(icon: Icons.auto_awesome, color: const Color(0xFF8E5BFF),
+                      label: spec.skill.toUpperCase(), count: skill ? 1 : 0, scale: scale,
+                      badgeText: skill ? '✓' : '${spec.cost}PA', cooldown: cd,
+                      enabled: canPlay && cd == 0, onTap: () => _toggleSkill(!skill)),
+                ],
+              ),
+            ),
+          ),
+        ),
+        SizedBox(height: dock ? 16 : 8),
+        ShineButton(
+          icon: canPlay ? Icons.check_circle_outline : Icons.hourglass_top_rounded,
+          label: canPlay ? 'JALANKAN AKSI' : _turnLabel,
+          height: dock ? 54 : 46,
+          onPressed: issue == null && canPlay ? () => submit() : null,
+        ),
       ]),
     );
   }
 
-  Widget _waiting({bool dock = false}) {
-    final body = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      const SizedBox(width: 18, height: 18,
-          child: CircularProgressIndicator(strokeWidth: 2.2, color: shineGold)),
-      const SizedBox(width: 12),
-      Flexible(child: Text(widget.isBotMatch ? 'Komputer sedang menentukan aksi…'
-          : 'Menunggu giliran atau sinkronisasi lawan…',
-          style: const TextStyle(color: shineMuted, fontSize: 13))),
-    ]);
-    if (dock) return Center(child: Padding(padding: const EdgeInsets.all(24), child: body));
-    return Container(
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-        decoration: BoxDecoration(color: const Color(0xE60E0C16),
-            border: Border(top: BorderSide(color: _accent.withValues(alpha: .4)))),
-        child: SafeArea(top: false, child: body));
-  }
-
-  /// Panel kontrol di sisi kanan untuk layar lebar (desktop / ponsel landscape).
-  Widget _dock(bool canPlay) {
-    final over = widget.state['winner'] != null;
-    final Widget content;
-    if (over) {
-      content = const Center(child: Padding(padding: EdgeInsets.all(24),
-          child: Text('Pertandingan selesai.', style: TextStyle(color: shineMuted))));
-    } else if (!widget.canAct) {
-      content = _waiting(dock: true);
-    } else {
-      content = Center(child: SingleChildScrollView(
-          child: _controls(canPlay, dock: true)));
-    }
-    return Container(
-      width: 400,
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-            colors: [Color(0xE61A1727), Color(0xF20E0C16)]),
-        border: Border(left: BorderSide(color: _accent.withValues(alpha: .45))),
-        boxShadow: [BoxShadow(color: _accent.withValues(alpha: .18),
-            blurRadius: 30, offset: const Offset(-6, 0))],
+  Widget _dock(bool canPlay) => Container(
+    width: 390,
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .32),
+      border: Border(left: BorderSide(color: _accent.withValues(alpha: .32))),
+    ),
+    child: SafeArea(
+      left: false,
+      child: Center(
+        child: SingleChildScrollView(
+          child: _commandDeck(canPlay, dock: true),
+        ),
       ),
-      child: SafeArea(left: false, child: content),
-    );
-  }
+    ),
+  );
 
   Widget _resultOverlay(int w) {
     final won = w == widget.viewerSide;
@@ -1901,41 +2039,41 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     final sub = !_personal ? 'Pertandingan selesai.'
         : (won ? 'Seluruh tokoh lawan telah tumbang.' : 'Seluruh tokohmu tumbang. Coba strategi lain!');
     return Positioned.fill(child: TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1), duration: const Duration(milliseconds: 700),
-      curve: Curves.elasticOut,
+      tween: Tween(begin: 0, end: 1), duration: const Duration(milliseconds: 650),
+      curve: Curves.easeOutBack,
       builder: (context, v, child) => Opacity(opacity: v.clamp(0.0, 1.0),
           child: Stack(children: [
-            Positioned.fill(child: ColoredBox(color: Colors.black.withValues(alpha: .72))),
+            Positioned.fill(child: ColoredBox(color: Colors.black.withValues(alpha: .76))),
             Positioned.fill(child: CustomPaint(painter: _RaysPainter(_amb, color, !bad))),
-            Center(child: Transform.scale(scale: .8 + .2 * v, child: child)),
+            Center(child: Transform.scale(scale: .85 + .15 * v, child: child)),
           ])),
       child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440),
           child: Padding(padding: const EdgeInsets.all(28), child: Column(
-          mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-        Icon(bad ? Icons.heart_broken : Icons.emoji_events, color: color, size: 72, shadows: [
-          Shadow(color: color, blurRadius: 30)]),
-        const SizedBox(height: 8),
-        ShaderMask(
-            shaderCallback: (r) => LinearGradient(
-                begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                colors: [Color.lerp(color, Colors.white, .6)!, color]).createShader(r),
-            child: Text(title, textAlign: TextAlign.center, style: const TextStyle(
-                fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: 6,
-                color: Colors.white, shadows: [Shadow(color: Colors.black54, blurRadius: 14)]))),
-        const SizedBox(height: 6),
-        Text(sub, textAlign: TextAlign.center,
-            style: const TextStyle(color: shineMuted, fontSize: 13)),
-        const SizedBox(height: 12),
-        Center(child: StatPill('Berakhir di giliran $turn',
-            icon: Icons.timelapse, color: color)),
-        const SizedBox(height: 26),
-        if (widget.onReplay != null) ...[
-          ShineButton(icon: Icons.replay, label: 'MAIN LAGI', onPressed: widget.onReplay),
-          const SizedBox(height: 10),
-        ],
-        ShineButton(primary: widget.onReplay == null, icon: Icons.home_outlined,
-            label: 'KEMBALI KE MENU', onPressed: () => Navigator.of(context).pop()),
-      ]))),
+              mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Icon(bad ? Icons.heart_broken : Icons.emoji_events, color: color, size: 72, shadows: [
+              Shadow(color: color, blurRadius: 30)]),
+            const SizedBox(height: 8),
+            ShaderMask(
+                shaderCallback: (r) => LinearGradient(
+                    begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                    colors: [Color.lerp(color, Colors.white, .6)!, color]).createShader(r),
+                child: Text(title, textAlign: TextAlign.center, style: const TextStyle(
+                    fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: 6,
+                    color: Colors.white, shadows: [Shadow(color: Colors.black54, blurRadius: 14)]))),
+            const SizedBox(height: 6),
+            Text(sub, textAlign: TextAlign.center,
+                style: const TextStyle(color: shineMuted, fontSize: 13)),
+            const SizedBox(height: 12),
+            Center(child: StatPill('Berakhir di giliran $turn',
+                icon: Icons.timelapse, color: color)),
+            const SizedBox(height: 26),
+            if (widget.onReplay != null) ...[
+              ShineButton(icon: Icons.replay, label: 'MAIN LAGI', onPressed: widget.onReplay),
+              const SizedBox(height: 10),
+            ],
+            ShineButton(primary: widget.onReplay == null, icon: Icons.home_outlined,
+                label: 'KEMBALI KE MENU', onPressed: () => Navigator.of(context).pop()),
+          ]))),
     ));
   }
 
@@ -1946,13 +2084,14 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     return ShineScaffold(
       accent: _accent,
       body: Stack(children: [
-        Positioned.fill(child: CustomPaint(painter: _ScenePainter(_amb, _accent))),
+        Positioned.fill(child: RepaintBoundary(
+          child: CustomPaint(painter: _ScenePainter(_amb, _accent)),
+        )),
         SafeArea(bottom: false, child: LayoutBuilder(builder: (context, box) {
           _wide = shineIsWide(box.biggest);
           _short = box.maxHeight < 520;
           final stage = Column(children: [
-            _topBar(),
-            _hud(),
+            _broadcastHeader(),
             Expanded(child: LayoutBuilder(builder: (context, b) => _stage(b.biggest))),
           ]);
           if (_wide) {
@@ -1961,15 +2100,10 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
               _dock(canPlay),
             ]);
           }
-          final Widget bottom;
-          if (winner != null) {
-            bottom = const SizedBox(height: 8);
-          } else if (!widget.canAct) {
-            bottom = _waiting();
-          } else {
-            bottom = SafeArea(top: false, child: _controls(canPlay));
-          }
-          return Column(children: [Expanded(child: stage), bottom]);
+          return Column(children: [
+            Expanded(child: stage),
+            SafeArea(top: false, child: _commandDeck(canPlay)),
+          ]);
         })),
         if (winner != null && _resultReady) _resultOverlay((winner as num).toInt()),
       ]),
