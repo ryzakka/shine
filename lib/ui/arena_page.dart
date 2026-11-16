@@ -10,6 +10,7 @@ import '../domain/battle_match.dart';
 import '../domain/battle_rules.dart';
 import '../online/shine_service.dart';
 import 'shine_ui.dart';
+import 'squad_picker.dart';
 
 typedef BattleAction = Future<void> Function({
 required int attack, required int defend, required int reserve,
@@ -211,134 +212,191 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
             ]))),
       );
 
+  Future<void> _chooseLineup(bool isHost) async {
+    final result = await Navigator.push<List<String>>(context,
+      MaterialPageRoute(builder: (_) => SquadPicker(
+        defaults: const [], title: isHost ? 'TIM A • PILIH 3 KARTU' : 'TIM B • PILIH 3 KARTU')));
+    if (!mounted || result == null) return;
+    await _perform(() => service.submitLineup(widget.roomId, result));
+  }
+
   Widget _lobby(Map<String,dynamic> room) {
     final uid = Supabase.instance.client.auth.currentUser?.id;
     final isHost = uid == room['host_id'];
     final joined = room['guest_id'] != null;
-    final ready = room['guest_ready'] == true;
+    final phase = room['lobby_phase'] as String? ?? 'gathering';
+    final hostReady = room['host_ready'] == true;
+    final guestReady = room['guest_ready'] == true;
+    final myReady = isHost ? hostReady : guestReady;
     final seconds = (room['turn_seconds'] as num?)?.toInt() ?? 30;
     final hostCards = (room['host_cards'] as List? ?? []).map((e) => e.toString()).toList();
     final guestCards = (room['guest_cards'] as List? ?? []).map((e) => e.toString()).toList();
+
+    if (phase == 'reveal') {
+      return _OnlineReveal(
+        key: ValueKey('reveal-${widget.roomId}'),
+        hostCards: hostCards, guestCards: guestCards, isHost: isHost,
+        start: DateTime.tryParse(room['reveal_started_at']?.toString() ?? '')?.toUtc()
+            ?? DateTime.now().toUtc(),
+        onFinished: () => service.startRoom(widget.roomId),
+      );
+    }
+
     return ShineScaffold(
-      appBar: AppBar(title: const Text('LOBI SHINE'), actions: [
-        IconButton(tooltip:'Beranda (ruang tetap ada)',
+      appBar: AppBar(title: const Text('RUANG PERTANDINGAN'), actions: [
+        IconButton(tooltip:'Kembali tanpa membubarkan ruang',
             onPressed: () => Navigator.pop(context), icon: const Icon(Icons.home_outlined)),
       ]),
       body: SafeArea(child: Center(child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 760),
-          child: ListView(padding: const EdgeInsets.fromLTRB(18, 4, 18, 24), children: [
-        Reveal(child: ShinePanel(glow: shineGold, borderColor: shineGold.withValues(alpha: .5),
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        constraints: const BoxConstraints(maxWidth: 920),
+        child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 36), children: [
+          ShinePanel(glow: shineGold, borderColor: shineGold.withValues(alpha: .45),
             child: Column(children: [
-              const Text('KODE UNDANGAN', style: TextStyle(letterSpacing: 3,
-                  fontSize: 11, color: shineMuted, fontWeight: FontWeight.w800)),
+              const Text('KODE UNDANGAN', style: TextStyle(letterSpacing: 2.6,
+                  fontSize: 10, color: shineMuted, fontWeight: FontWeight.w900)),
               const SizedBox(height: 8),
-              ShaderMask(
-                shaderCallback: (r) => const LinearGradient(
-                    colors: [shineGoldLight, shineGold, shineGoldDeep],
-                    begin: Alignment.topCenter, end: Alignment.bottomCenter).createShader(r),
-                child: FittedBox(fit: BoxFit.scaleDown, child:
-                    SelectableText(widget.roomCode, style: const TextStyle(
-                    color: Colors.white, fontSize: 44, fontWeight: FontWeight.w900,
-                    letterSpacing: 10))),
-              ),
-              TextButton.icon(onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: widget.roomCode));
-                if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Kode lobi disalin.')));
-              }, icon: const Icon(Icons.copy, size: 18), label: const Text('Salin kode')),
-            ]))),
-        const SizedBox(height: 16),
-        Reveal(index: 1, child: _lobbyPlayer('TIM A • HOST', hostCards,
-            joined: true, ready: true, accent: shineAzure)),
-        Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Center(
-            child: Text('VS', style: TextStyle(color: shineGold.withValues(alpha: .9),
-                fontWeight: FontWeight.w900, fontSize: 18, letterSpacing: 4)))),
-        Reveal(index: 2, child: _lobbyPlayer('TIM B • PEMAIN KEDUA', guestCards,
-            joined: joined, ready: ready, accent: shineEmber)),
-        SectionLabel('TIMER PER GILIRAN', trailing: StatPill('$seconds detik',
-            icon: Icons.timer_outlined, color: shineGold)),
-        Wrap(spacing:8,runSpacing:8,children: [
-          for (final time in const [20,30,45,60])
-            ChoiceChip(label: Text('$time detik'), selected: seconds == time,
-                onSelected: isHost && !submitting
-                    ? (_) => _perform(() => service.setTimer(widget.roomId,time))
-                    : null),
-        ]),
-        const SizedBox(height: 24),
-        if (isHost) ...[
-          ShineButton(icon: Icons.play_arrow, label: 'MULAI PERTANDINGAN', height: 60,
-              onPressed: joined && ready && !submitting
-                  ? () => _perform(() => service.startRoom(widget.roomId)) : null),
-          const SizedBox(height: 10),
-          Text(joined
-              ? (ready ? 'Pemain kedua siap. Pertandingan dapat dimulai.'
-              : 'Menunggu pemain kedua menekan tombol Siap.')
-              : 'Menunggu pemain kedua masuk menggunakan kode di atas.',
-              textAlign: TextAlign.center, style: const TextStyle(color:shineMuted,fontSize:12)),
-        ] else ...[
-          ShineButton(height: 60, primary: !ready,
-              icon: ready ? Icons.check_circle : Icons.hourglass_bottom,
-              label: ready ? 'SUDAH SIAP • BATALKAN' : 'SAYA SIAP',
-              onPressed: submitting ? null : () => _perform(() => service.setReady(widget.roomId,!ready))),
-          const SizedBox(height: 10),
-          const Text('Setelah kedua pemain siap, host akan memulai pertandingan.',
-              textAlign: TextAlign.center, style: TextStyle(color:shineMuted,fontSize:12)),
-        ],
-        const SizedBox(height: 26),
-        ShineButton(primary: false, icon: Icons.home_outlined, height: 48,
-            label: 'KEMBALI KE BERANDA', subtitle: 'Lobi tetap ada',
+              FittedBox(fit: BoxFit.scaleDown,
+                  child: SelectableText(widget.roomCode, style: const TextStyle(
+                    fontSize: 44, fontWeight: FontWeight.w900, color: shineGoldLight,
+                    letterSpacing: 9))),
+              TextButton.icon(
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: widget.roomCode));
+                  if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Kode ruang disalin.')));
+                }, icon: const Icon(Icons.copy, size: 16), label: const Text('SALIN KODE')),
+              Text(joined ? 'Kedua pemain telah hadir. Pilih tiga tokoh masing-masing.'
+                  : 'Bagikan kode kepada teman. Kartu baru dipilih setelah dua pemain masuk.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 12, height: 1.4, color: shineMuted)),
+            ])),
+          const SizedBox(height: 16),
+          LayoutBuilder(builder: (context, bounds) {
+            final sideBySide = bounds.maxWidth >= 640;
+            final a = _lobbyPlayer('TIM A • HOST', hostCards,
+                joined: true, ready: hostReady, showCards: isHost && hostReady,
+                accent: shineAzure);
+            final b = _lobbyPlayer('TIM B • TAMU', guestCards,
+                joined: joined, ready: guestReady, showCards: !isHost && guestReady,
+                accent: shineEmber);
+            return sideBySide
+              ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(child: a), const Padding(
+                    padding: EdgeInsets.fromLTRB(12, 55, 12, 0),
+                    child: Text('VS', style: TextStyle(fontSize: 17,
+                        fontWeight: FontWeight.w900, color: shineGold))),
+                  Expanded(child: b),
+                ])
+              : Column(children: [a, const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 8),
+                    child: Text('VS', style: TextStyle(fontSize: 16,
+                        fontWeight: FontWeight.w900, color: shineGold))), b]);
+          }),
+          const SizedBox(height: 18),
+          if (joined) ...[
+            ShinePanel(tint: shineGold,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                const Text('FASE 2 / PEMILIHAN KARTU', style: TextStyle(
+                    color: shineGold, letterSpacing: 1.5, fontSize: 12,
+                    fontWeight: FontWeight.w900)),
+                const SizedBox(height: 7),
+                Text(myReady
+                    ? 'Tim terkunci. Menunggu pilihan lawan sebelum kartu diungkap.'
+                    : 'Kedua pemain memilih secara bersamaan. Pilihan lawan disembunyikan sampai pengungkapan.',
+                    style: const TextStyle(color: shineMuted, height: 1.45, fontSize: 12)),
+                const SizedBox(height: 14),
+                ShineButton(icon: myReady ? Icons.check_circle_outline : Icons.style,
+                  height: 54, label: myReady ? '3 KARTU SUDAH DIKUNCI' : 'PILIH TIGA KARTU',
+                  onPressed: !myReady && !submitting
+                      ? () => _chooseLineup(isHost) : null),
+              ])),
+          ] else
+            const ShinePanel(child: Row(children: [
+              Icon(Icons.hourglass_top, color: shineGold), SizedBox(width: 14),
+              Expanded(child: Text('Menunggu pemain kedua bergabung…',
+                  style: TextStyle(fontWeight: FontWeight.w800))),
+            ])),
+          if (isHost) ...[
+            const SectionLabel('DURASI GILIRAN'),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              for (final time in const [20, 30, 45, 60])
+                ChoiceChip(label: Text('$time detik'), selected: seconds == time,
+                  onSelected: !submitting && phase != 'reveal'
+                    ? (_) => _perform(() => service.setTimer(widget.roomId, time)) : null),
+            ]),
+          ],
+          const SizedBox(height: 24),
+          const Row(children: [Icon(Icons.info_outline, size: 18, color: shineGold),
+            SizedBox(width: 10), Expanded(child: Text(
+                'Setelah kedua tim terkunci, enam kartu terungkap bergiliran. Pertarungan lalu dimulai otomatis.',
+                style: TextStyle(fontSize: 12, color: shineMuted, height: 1.4)))]),
+          const SizedBox(height: 20),
+          ShineButton(primary: false, icon: Icons.home_outlined, height: 48,
+            label: 'KEMBALI KE BERANDA', subtitle: 'Ruang tetap tersedia',
             onPressed: () => Navigator.pop(context)),
-        const SizedBox(height: 4),
-        TextButton.icon(onPressed: submitting ? null : () async {
-          if (isHost) {
-            await _endRoom(disband: true);
-          } else if (await _ask('Keluar dari lobi?',
-              'Slot tim B akan dibuka kembali untuk pemain lain.', 'Keluar')) {
-            final success = await _perform(() => service.leaveLobby(widget.roomId));
-            if (success && mounted) Navigator.pop(context);
-          }
-        }, style: TextButton.styleFrom(foregroundColor: shineEmber),
+          const SizedBox(height: 8),
+          TextButton.icon(
+            onPressed: submitting ? null : () async {
+              if (isHost) {
+                await _endRoom(disband: true);
+              } else if (await _ask('Keluar dari lobi?',
+                    'Slot pemain kedua dibuka kembali. Tim host perlu dipilih ulang.', 'Keluar')) {
+                final success = await _perform(() => service.leaveLobby(widget.roomId));
+                if (success && mounted) Navigator.pop(context);
+              }
+            },
+            style: TextButton.styleFrom(foregroundColor: shineEmber),
             icon: Icon(isHost ? Icons.delete_outline : Icons.exit_to_app),
             label: Text(isHost ? 'Bubarkan lobi' : 'Keluar dari lobi')),
-      ])))),
+        ])))),
     );
   }
 
-  Widget _lobbyPlayer(String label, List<String> ids,
-      {required bool joined, required bool ready, required Color accent}) =>
-      ShinePanel(tint: accent, borderColor: ready ? shineJade.withValues(alpha: .6) : null,
-          padding: const EdgeInsets.all(14),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text(label, style: TextStyle(color: accent,
-                  fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 1.4))),
-              !joined
-                  ? const StatPill('Belum bergabung', icon: Icons.person_off_outlined)
-                  : ready
-                  ? const StatPill('Siap', icon: Icons.check_circle, color: shineJade)
-                  : const StatPill('Belum siap', icon: Icons.hourglass_bottom, color: shineGold),
-            ]),
-            const SizedBox(height: 12),
-            SizedBox(height: 128, child: Row(children: [
-              for (var i = 0; i < 3; i++) Expanded(child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: i < ids.length
-                    ? Column(children: [
-                  Expanded(child: Portrait(characterById(ids[i]), radius: 12)),
-                  const SizedBox(height: 5),
-                  Text(characterById(ids[i]).name, maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
-                ])
-                    : DecoratedBox(
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: .03),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: Colors.white12)),
-                    child: const Center(child: Icon(Icons.help_outline, color: Colors.white24))),
-              )),
-            ])),
-          ]));
+  Widget _lobbyPlayer(String label, List<String> ids, {
+    required bool joined, required bool ready, required bool showCards,
+    required Color accent,
+  }) => ShinePanel(tint: accent, padding: const EdgeInsets.all(12),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(color: accent, fontSize: 11, fontWeight: FontWeight.w900,
+            letterSpacing: 1.2))),
+        StatPill(!joined ? 'Menunggu' : ready ? 'Terkunci' : 'Memilih',
+            color: ready ? shineJade : shineGold,
+            icon: ready ? Icons.check_circle : Icons.hourglass_bottom),
+      ]),
+      const SizedBox(height: 12),
+      SizedBox(height: 134, child: Row(children: [
+        for (var i = 0; i < 3; i++) Expanded(child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: showCards && i < ids.length
+            ? ClipRRect(borderRadius: BorderRadius.circular(10),
+                child: Stack(fit: StackFit.expand, children: [
+                  Portrait(characterById(ids[i]), radius: 10),
+                  Positioned(bottom: 0, left: 0, right: 0,
+                    child: Container(color: const Color(0xDD100F1A),
+                      padding: const EdgeInsets.all(4), child: Text(
+                        characterById(ids[i]).name, maxLines: 1,
+                        overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
+                        style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800)))),
+                ]))
+            : Container(decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(10),
+                gradient: const LinearGradient(colors: [Color(0xFF332640), Color(0xFF171423)]),
+                border: Border.all(color: accent.withValues(alpha: .35))),
+                child: Center(child: Column(mainAxisSize: MainAxisSize.min,
+                  children: [Icon(ready ? Icons.lock_outline : Icons.help_outline,
+                    color: accent.withValues(alpha: .65), size: 24),
+                    Text('${i + 1}', style: TextStyle(color: accent,
+                      fontSize: 12, fontWeight: FontWeight.w900))]))),
+        )),
+      ])),
+      const SizedBox(height: 8),
+      Text(!joined ? 'Menunggu teman masuk' : ready
+        ? (showCards ? 'Tim kamu siap' : 'Pilihan lawan tersegel')
+        : 'Sedang memilih kartu',
+        style: const TextStyle(fontSize: 11, color: shineMuted)),
+    ]));
 
   @override
   Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
@@ -392,6 +450,177 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
   );
 }
 
+/// Sinematik pengungkapan sinkron di kedua perangkat; waktu berasal dari server.
+/// Tidak menggunakan Navigator agar stream ruang dapat beralih langsung ke arena.
+class _OnlineReveal extends StatefulWidget {
+  const _OnlineReveal({super.key, required this.hostCards, required this.guestCards,
+    required this.isHost, required this.start, required this.onFinished});
+  final List<String> hostCards, guestCards;
+  final bool isHost;
+  final DateTime start;
+  final Future<void> Function() onFinished;
+
+  @override
+  State<_OnlineReveal> createState() => _OnlineRevealState();
+}
+
+class _OnlineRevealState extends State<_OnlineReveal> {
+  Timer? _clock;
+  bool _starting = false;
+  DateTime? _lastAttempt;
+  int get elapsed => math.max(0,
+      DateTime.now().toUtc().difference(widget.start).inMilliseconds);
+  int get revealed => ((elapsed - 400) / 1100).ceil().clamp(0, 6).toInt();
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer.periodic(const Duration(milliseconds: 140), (_) {
+      if (!mounted) return;
+      setState(() {});
+      if (elapsed >= 8900 && !_starting && (_lastAttempt == null ||
+          DateTime.now().difference(_lastAttempt!) > const Duration(seconds: 2))) {
+        _advance();
+      }
+    });
+  }
+
+  Future<void> _advance() async {
+    _starting = true;
+    _lastAttempt = DateTime.now();
+    try {
+      await widget.onFinished();
+    } catch (_) {
+      // Jam server mungkin lebih lambat dari jam perangkat; retry aman
+      // karena RPC startRoom idempoten dan memeriksa timestamp server.
+    } finally {
+      _starting = false;
+    }
+  }
+
+  @override
+  void dispose() { _clock?.cancel(); super.dispose(); }
+
+  Widget _miniCards(List<String> ids, int offset, Color color, String label) {
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11, color: color,
+              letterSpacing: 1.6, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 10),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        for (var i = 0; i < 3; i++) Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 3),
+          child: AnimatedContainer(duration: const Duration(milliseconds: 300),
+            width: 68, height: 92, clipBehavior: Clip.antiAlias,
+            decoration: BoxDecoration(borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: revealed >= i + offset + 1
+                  ? color : Colors.white24, width: 1.5)),
+            child: revealed >= i + offset + 1 && i < ids.length
+              ? Portrait(characterById(ids[i]), radius: 9, border: false)
+              : Container(color: const Color(0xFF242036),
+                  child: Center(child: Icon(Icons.auto_awesome,
+                      size: 27, color: color.withValues(alpha: .5))))),
+        ),
+      ]),
+    ]);
+  }
+
+  Widget _featured(int index) {
+    final ids = [...widget.hostCards, ...widget.guestCards];
+    final safeIndex = index.clamp(0, ids.length - 1).toInt();
+    final sp = characterById(ids[safeIndex]);
+    final team = safeIndex < 3 ? 0 : 1;
+    final color = team == 0 ? shineAzure : shineEmber;
+    return TweenAnimationBuilder<double>(
+      key: ValueKey('flip-$safeIndex'),
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 680), curve: Curves.easeInOutCubic,
+      builder: (context, v, _) {
+        final front = v >= .5;
+        final angle = math.pi * v;
+        return Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()..setEntry(3, 2, .001)..rotateY(angle),
+          child: front
+            ? Transform(alignment: Alignment.center,
+                transform: Matrix4.identity()..rotateY(math.pi),
+                child: _CardFace(spec: sp, accent: color))
+            : Container(decoration: BoxDecoration(
+                gradient: const LinearGradient(colors: [Color(0xFF5E436E), Color(0xFF171326)]),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: shineGold, width: 2)),
+                child: const Center(child: Icon(Icons.auto_awesome,
+                    size: 72, color: shineGold))),
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ids = [...widget.hostCards, ...widget.guestCards];
+    if (ids.length != 6) return const ShineScaffold(body: Center(
+      child: CircularProgressIndicator(color: shineGold)));
+    final n = revealed;
+    final active = n == 0 ? 0 : math.min(n - 1, 5);
+    final team = active < 3 ? 0 : 1;
+    final sp = characterById(ids[active]);
+    final accent = team == 0 ? shineAzure : shineEmber;
+    final p = (elapsed / 8500).clamp(0.0, 1.0);
+    return ShineScaffold(accent: accent, body: SafeArea(
+      child: LayoutBuilder(builder: (context, bounds) => Center(
+        child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 860),
+          child: SingleChildScrollView(child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            child: Column(children: [
+              const Text('SHINE / PENGUNGKAPAN', style: TextStyle(color: shineGold,
+                  fontSize: 11, letterSpacing: 3, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 5),
+              const Text('ENAM TAKDIR BERTEMU', textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 21, letterSpacing: 1.5,
+                  fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              const Text('Kedua tim telah terkunci. Kartu terungkap satu demi satu.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: shineMuted, fontSize: 12)),
+              const SizedBox(height: 17),
+              Wrap(alignment: WrapAlignment.center, spacing: 22, runSpacing: 14,
+                children: [
+                  _miniCards(widget.hostCards, 0, shineAzure,
+                      widget.isHost ? 'TIM A • KAMU' : 'TIM A • LAWAN'),
+                  _miniCards(widget.guestCards, 3, shineEmber,
+                      widget.isHost ? 'TIM B • LAWAN' : 'TIM B • KAMU'),
+                ]),
+              const SizedBox(height: 20),
+              Text(n == 0 ? 'KARTU TERSEGEL' : 'KARTU $n / 6  •  TIM ${team == 0 ? 'A' : 'B'}',
+                style: TextStyle(fontSize: 11, letterSpacing: 1.6,
+                    color: accent, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 10),
+              SizedBox(height: math.min(275.0, math.max(176.0, bounds.maxHeight * .32)),
+                width: math.min(187.0, math.max(115.0, bounds.maxHeight * .23)),
+                child: AnimatedSwitcher(duration: const Duration(milliseconds: 260),
+                  child: KeyedSubtree(key: ValueKey(active), child: _featured(active)))),
+              const SizedBox(height: 10),
+              Text(n == 0 ? 'Tunggu pengungkapan…' : sp.name.toUpperCase(),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
+              Text(n == 0 ? 'Setiap tokoh membawa kemampuan sendiri' : sp.skill,
+                style: const TextStyle(fontSize: 12, color: shineGold)),
+              const SizedBox(height: 18),
+              ClipRRect(borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(value: p, minHeight: 5,
+                  color: shineGold, backgroundColor: Colors.white12)),
+              const SizedBox(height: 8),
+              Text(p == 1 ? 'MEMBUKA ARENA…' : 'BERSIAP UNTUK PERTARUNGAN',
+                style: const TextStyle(color: shineMuted, fontSize: 10,
+                  letterSpacing: 2, fontWeight: FontWeight.w900)),
+            ]))),
+        ),
+      )),
+    ));
+  }
+}
+
 // ═════════════════════════════════════════════════════════════════
 //  PERTARUNGAN — tata letak ala "Jurassic World: The Game" versi kartu
 // ═════════════════════════════════════════════════════════════════
@@ -412,13 +641,15 @@ class _Fx {
     required this.reserveSaved, required this.damage, required this.absorbed,
     required this.oldBlockTarget, required this.skill, required this.skillName,
     required this.swap, required this.timeout, required this.heal,
-    required this.selfDamage, required this.ghosts});
+    required this.selfDamage, required this.targetMaxHp, required this.ghosts});
   final int actor, attackPts, defend, reserveSaved, damage, absorbed,
-      oldBlockTarget, heal, selfDamage;
+      oldBlockTarget, heal, selfDamage, targetMaxHp;
   final bool skill, swap, timeout;
   final String skillName;
   final List<_Ghost> ghosts;
   int get target => 1 - actor;
+  bool get heavy => damage >= targetMaxHp * .26 || attackPts >= 5;
+  bool get crushing => damage >= targetMaxHp * .48 || attackPts >= 7;
   bool get attacked => attackPts > 0 && !swap && !timeout;
   bool get passive => !attacked && !swap && !timeout;
   double get intensity => math.max(.2, attackPts / 8);
@@ -426,8 +657,8 @@ class _Fx {
 
 class _Pose {
   const _Pose({this.dx = 0, this.dy = 0, this.scale = 1, this.rot = 0,
-    this.flash = 0, this.flashColor = shineEmber, this.opacity = 1});
-  final double dx, dy, scale, rot, flash, opacity;
+    this.flash = 0, this.flashColor = shineEmber, this.opacity = 1, this.flip = 0});
+  final double dx, dy, scale, rot, flash, opacity, flip;
   final Color flashColor;
 }
 
@@ -647,7 +878,8 @@ class _StagePainter extends CustomPainter {
     if (e.attacked && t >= .2) {
       const ta = .22;
       if (e.damage > 0) {
-        final n = 1 + (e.attackPts >= 3 ? 1 : 0) + (e.attackPts >= 6 ? 1 : 0);
+        final n = 1 + (e.attackPts >= 3 ? 1 : 0) + (e.attackPts >= 6 ? 1 : 0)
+            + (e.crushing ? 2 : e.heavy ? 1 : 0);
         for (var i = 0; i < n; i++) {
           final k = (i - (n - 1) / 2) * cw * .3;
           final p0 = Offset(tc.dx + cw * .45 + k, tc.dy - ch * .45);
@@ -655,7 +887,7 @@ class _StagePainter extends CustomPainter {
           final s = Curves.easeOut.transform(_seg(t, ta + i * .05, ta + .2 + i * .05));
           final fade = 1 - _seg(t, ta + .3, ta + .6);
           if (s > 0) _glowLine(canvas, p0, Offset.lerp(p0, p1, s)!, shineEmber,
-              5 + 4 * e.intensity, fade);
+              5 + (e.heavy ? 6 : 3) * e.intensity, fade);
         }
         final rp = _seg(t, ta, ta + .4);
         _ring(canvas, tc, 10 + (ch * .7) * Curves.easeOut.transform(rp),
@@ -820,9 +1052,10 @@ class _CardFace extends StatelessWidget {
                 stops: const [.62, 1], colors: [Colors.transparent, Colors.black.withValues(alpha: .88)])))),
         Positioned(left: 8, right: 8, bottom: 8, child: Column(
             mainAxisSize: MainAxisSize.min, children: [
-          Text(spec.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+          FittedBox(fit: BoxFit.scaleDown,
+            child: Text(spec.name, maxLines: 1, overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center, style: const TextStyle(
-                  fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: .5)),
+                fontWeight: FontWeight.w900, fontSize: 13))),
           Text(spec.skill, maxLines: 1, overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 10, color: shineGold)),
         ])),
@@ -866,11 +1099,17 @@ class _HudPlate extends StatelessWidget {
           const SizedBox(height: 3),
           Row(mainAxisAlignment: mirrored ? MainAxisAlignment.end : MainAxisAlignment.start,
               children: [
-                const Icon(Icons.add, size: 15, color: shineAzure),
-                Text('$hp', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                Icon(Icons.favorite_rounded, size: 15, color: hpStatusColor(hp,maxHp)),
+                const SizedBox(width: 4),
+                Flexible(child: FittedBox(fit: BoxFit.scaleDown,
+                  child: Text('$hp / $maxHp', style: TextStyle(fontSize: 17,
+                    fontWeight: FontWeight.w900, color: hpStatusColor(hp,maxHp))))),
               ]),
-          HpBar(hp: hp, maxHp: maxHp, height: 8, showText: false),
-          const SizedBox(height: 4),
+          HpBar(hp: hp, maxHp: maxHp, height: 10, showText: false),
+          const SizedBox(height: 2),
+          Text(hpStatusLabel(hp,maxHp), style: TextStyle(fontSize: 9,
+            fontWeight: FontWeight.w900, letterSpacing: 1.3,
+            color: hpStatusColor(hp,maxHp))),
           Align(alignment: mirrored ? Alignment.centerRight : Alignment.centerLeft,
               child: FittedBox(fit: BoxFit.scaleDown,
                   child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -1107,7 +1346,8 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
         _event = fx;
         _fxC.forward(from: 0);
         if (fx.attacked) {
-          HapticFeedback.mediumImpact();
+          if (fx.crushing) HapticFeedback.heavyImpact();
+          else HapticFeedback.mediumImpact();
         } else {
           HapticFeedback.selectionClick();
         }
@@ -1175,6 +1415,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
           skill: sk != null, skillName: sk?.group(1) ?? '',
           swap: swap, timeout: timeout, heal: heal,
           selfDamage: math.max(0, hp(oa, aIdx) - hp(na, aIdx)),
+          targetMaxHp: (((ot['cards'] as List)[tIdx] as Map)['max_hp'] as num).toInt(),
           ghosts: ghosts);
     } catch (_) { return null; }
   }
@@ -1364,14 +1605,17 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     // Saat persiapan, kartu tetap di koordinat panggung yang sama.
     // Sebelumnya offset 8-16 px mendadak kembali ke nol ketika FX dimulai.
     if (fx == null) return const _Pose();
-    var dx = 0.0, dy = 0.0, sc = 1.0, rot = 0.0, flash = 0.0, op = 1.0;
+    var dx = 0.0, dy = 0.0, sc = 1.0, rot = 0.0, flash = 0.0, op = 1.0, flip = 0.0;
     var fc = shineEmber;
     if (side == fx.actor) {
       if (fx.attacked) {
         final out = Curves.easeOutCubic.transform(_seg(t, 0, .22));
         final back = Curves.easeInOut.transform(_seg(t, .32, .62));
         final d = out * (1 - back);
-        dx = toward * gap * .62 * d; rot = toward * .06 * d; sc = 1 + .08 * d;
+        dx = toward * gap * (fx.heavy ? .67 : .57) * d;
+        rot = toward * (fx.heavy ? .11 : .06) * d;
+        sc = 1 + (fx.heavy ? .13 : .07) * d;
+        if (fx.skill) flip = math.sin(math.pi * _seg(t, 0, .38)) * .42;
       } else if (fx.timeout) {
         sc = 1 - .04 * math.sin(math.pi * _seg(t, 0, .6));
       } else if (!fx.swap) {
@@ -1392,10 +1636,18 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     } else if (fx.attacked) {
       final p = _seg(t, .22, .75);
       if (p > 0 && p < 1) {
-        final amp = (fx.damage > 0 ? 9.0 : 3.0) * (.4 + fx.intensity) * (1 - p);
+        final amp = (fx.damage > 0 ? (fx.heavy ? 16.0 : 9.0) : 3.0)
+            * (.4 + fx.intensity) * (1 - p);
         final actorDir = fx.actor == _left ? 1.0 : -1.0;
         dx = math.sin(p * math.pi * 9) * amp +
-            actorDir * 16 * fx.intensity * math.sin(math.pi * _seg(t, .22, .5));
+            actorDir * (fx.heavy ? 25 : 14) * fx.intensity
+              * math.sin(math.pi * _seg(t, .22, .55));
+        rot = -actorDir * (fx.heavy ? .11 : .04)
+            * math.sin(math.pi * _seg(t, .22, .65));
+        sc = 1 - (fx.heavy ? .10 : .04)
+            * math.sin(math.pi * _seg(t, .22, .6));
+        flip = actorDir * (fx.heavy ? -.32 : -.12)
+            * math.sin(math.pi * _seg(t, .22, .72));
         if (fx.damage > 0) {
           flash = .55 * (1 - _seg(t, .22, .5)); fc = shineEmber;
         } else {
@@ -1410,7 +1662,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
       op = e; dx += (side == _left ? -1 : 1) * 70 * (1 - e);
     }
     return _Pose(dx: dx, dy: dy, scale: sc, rot: rot, flash: flash,
-        flashColor: fc, opacity: op);
+        flashColor: fc, opacity: op, flip: flip);
   }
 
   Widget _slot(int side, Offset c, double cw, double ch, _Pose pose,
@@ -1446,19 +1698,33 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                 ])),
           ))));
     }
+    final currentHp = (unit['hp'] as num).toInt();
+    final totalHp = (unit['max_hp'] as num?)?.toInt() ?? cur.hp;
     kids.add(Positioned.fill(child: Opacity(opacity: pose.opacity.clamp(0.0, 1.0),
         child: _CardFace(spec: cur, accent: accent,
             tint: pose.flashColor, tintAlpha: pose.flash))));
+    if (currentHp > 0 && totalHp > 0 && currentHp / totalHp <= .2) {
+      kids.add(Positioned.fill(child: IgnorePointer(child: AnimatedBuilder(
+        animation: _amb, builder: (context, _) => DecoratedBox(
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: shineEmber.withValues(alpha: .5 +
+              .45 * (1 + math.sin(_amb.value * math.pi * 2)) / 2), width: 2.5),
+            boxShadow: [BoxShadow(color: shineEmber.withValues(alpha: .35),
+              blurRadius: 16, spreadRadius: 1)]))))));
+    }
     return Positioned(
       left: c.dx - cw / 2 + pose.dx, top: c.dy - ch / 2 + pose.dy,
       width: cw, height: ch,
       child: Transform.rotate(angle: pose.rot + (side == _left ? .02 : -.02),
+        child: Transform(
+          alignment: Alignment.center,
+          transform: Matrix4.identity()..setEntry(3, 2, .001)..rotateY(pose.flip),
           child: Transform.scale(scale: pose.scale,
-              child: AnimatedBuilder(animation: _amb,
-                  child: Stack(clipBehavior: Clip.none, children: kids),
-                  builder: (context, child) => Transform.translate(
-                      offset: Offset(0, 3 * math.sin(_amb.value * math.pi * 2 + side)),
-                      child: child)))),
+            child: AnimatedBuilder(animation: _amb,
+              child: Stack(clipBehavior: Clip.none, children: kids),
+              builder: (context, child) => Transform.translate(
+                offset: Offset(0, 3 * math.sin(_amb.value * math.pi * 2 + side)),
+                child: child))))),
     );
   }
 
@@ -1492,7 +1758,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                           child: LinearProgressIndicator(
                               value: maxHp == 0 ? 0 : (hp / maxHp).clamp(0.0, 1.0),
                               minHeight: 4, backgroundColor: Colors.black54,
-                              color: hp / maxHp > .3 ? shineJade : shineEmber))),
+                              color: hpStatusColor(hp, maxHp)))),
                       if (!alive) const Center(child: Text('KO', style: TextStyle(
                           color: shineEmber, fontWeight: FontWeight.w900, fontSize: 16))),
                       if (tappable && alive) Positioned(top: 2, right: 2, child: Container(
@@ -1509,50 +1775,61 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   // ───────────── Teks mengambang & banner ─────────────
 
   Widget _float(double t, Offset at, String text, Color color, double size,
-      double a, double b, double rise) {
+      double a, double b, double rise, double stageWidth) {
     final p = _seg(t, a, b);
     if (p <= 0 || p >= 1) return const SizedBox.shrink();
     final op = p < .15 ? p / .15 : 1 - _seg(p, .65, 1);
     final sc = .6 + .4 * Curves.easeOutBack.transform(_seg(p, 0, .25));
-    return Positioned(left: at.dx - 140, top: at.dy - rise * Curves.easeOut.transform(p) - size,
-        width: 280, child: IgnorePointer(child: Opacity(opacity: op.clamp(0.0, 1.0),
-            child: Transform.scale(scale: sc, child: Center(child: Text(text,
+    final w = math.min(230.0, math.max(80.0, stageWidth - 16));
+    final left = (at.dx - w / 2).clamp(8.0, math.max(8.0, stageWidth - w - 8)).toDouble();
+    return Positioned(left: left, top: at.dy - rise * Curves.easeOut.transform(p) - size,
+        width: w, child: IgnorePointer(child: Opacity(opacity: op.clamp(0.0, 1.0),
+            child: Transform.scale(scale: sc, child: Center(child: FittedBox(
+                fit: BoxFit.scaleDown, child: Text(text,
+                maxLines: 1, softWrap: false,
                 textAlign: TextAlign.center, style: TextStyle(fontSize: size,
                     fontWeight: FontWeight.w900, fontStyle: FontStyle.italic,
-                    letterSpacing: 1.5, color: color, shadows: [
+                    letterSpacing: 1.1, color: color, shadows: [
                       const Shadow(color: Colors.black, blurRadius: 6),
-                      Shadow(color: color.withValues(alpha: .8), blurRadius: 18)])))))));
+                      Shadow(color: color.withValues(alpha: .8), blurRadius: 18)]))))))));
   }
 
-  List<Widget> _floats(double t, _Fx e, Offset Function(int) cen, double ch) {
+  List<Widget> _floats(double t, _Fx e, Offset Function(int) cen, double ch, double stageWidth) {
     final ac = cen(e.actor), tc = cen(e.target);
     final w = <Widget>[];
+    Widget floatFx(Offset at, String txt, Color color, double sz,
+        double a, double b, double rise) =>
+      _float(t, at, txt, color, sz, a, b, rise, stageWidth);
     if (e.attacked) {
       if (e.damage > 0) {
-        w.add(_float(t, tc.translate(0, -ch * .1), '-${e.damage}', Colors.white,
+        if (e.heavy) w.add(floatFx(tc.translate(0, -ch * .45),
+            e.crushing ? 'HANTAMAN DAHSYAT!' : 'SERANGAN BESAR!',
+            e.crushing ? shineEmber : shineGold,
+            e.crushing ? 20 : 16, .26, .78, ch * .23));
+        w.add(floatFx(tc.translate(0, -ch * .1), '-${e.damage}', Colors.white,
             26 + 22 * e.intensity, .24, 1, ch * .35));
         if (e.absorbed > 0) {
-          w.add(_float(t, tc.translate(0, ch * .22), 'TAMENG -${e.absorbed}',
+          w.add(floatFx(tc.translate(0, ch * .22), 'TAMENG -${e.absorbed}',
               shineAzure, 15, .3, .95, ch * .12));
         }
       } else {
-        w.add(_float(t, tc.translate(0, -ch * .05), 'TERTAHAN!', shineAzure, 26, .24, .95, ch * .25));
+        w.add(floatFx(tc.translate(0, -ch * .05), 'TERTAHAN!', shineAzure, 26, .24, .95, ch * .25));
       }
-      if (e.defend > 0) w.add(_float(t, ac.translate(0, ch * .3), 'TAMENG ×${e.defend}', shineAzure, 14, .1, .85, ch * .15));
-      if (e.reserveSaved > 0) w.add(_float(t, ac.translate(0, ch * .42), 'PA +${e.reserveSaved}', shineGold, 14, .3, .95, ch * .12));
+      if (e.defend > 0) w.add(floatFx(ac.translate(0, ch * .3), 'TAMENG ×${e.defend}', shineAzure, 14, .1, .85, ch * .15));
+      if (e.reserveSaved > 0) w.add(floatFx(ac.translate(0, ch * .42), 'PA +${e.reserveSaved}', shineGold, 14, .3, .95, ch * .12));
     } else if (e.passive) {
       final label = e.defend > 0 && e.reserveSaved > 0 ? 'BERTAHAN & SIAGA'
           : e.defend > 0 ? 'BERTAHAN!' : e.reserveSaved > 0 ? 'MENGUMPULKAN PA' : 'BERSIAGA';
-      w.add(_float(t, ac.translate(0, -ch * .15), label,
+      w.add(floatFx(ac.translate(0, -ch * .15), label,
           e.defend > 0 ? shineAzure : (e.reserveSaved > 0 ? shineGold : Colors.white),
           22, .05, .95, ch * .3));
     } else if (e.timeout) {
-      w.add(_float(t, ac, 'WAKTU HABIS', shineMuted, 24, .05, .95, ch * .25));
+      w.add(floatFx(ac, 'WAKTU HABIS', shineMuted, 24, .05, .95, ch * .25));
     } else if (e.swap) {
-      w.add(_float(t, ac, 'GANTI TOKOH', shineGold, 24, .4, 1, ch * .25));
+      w.add(floatFx(ac, 'GANTI TOKOH', shineGold, 24, .4, 1, ch * .25));
     }
-    if (e.heal > 0) w.add(_float(t, ac.translate(0, -ch * .2), '+${e.heal}', shineJade, 30, .12, .95, ch * .35));
-    if (e.selfDamage > 0) w.add(_float(t, ac.translate(0, ch * .05), '-${e.selfDamage}', shineEmber, 26, .3, 1, ch * .3));
+    if (e.heal > 0) w.add(floatFx(ac.translate(0, -ch * .2), '+${e.heal}', shineJade, 30, .12, .95, ch * .35));
+    if (e.selfDamage > 0) w.add(floatFx(ac.translate(0, ch * .05), '-${e.selfDamage}', shineEmber, 26, .3, 1, ch * .3));
     return w;
   }
 
@@ -1573,11 +1850,15 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                         color: Colors.white.withValues(alpha: .6), width: 1.5))),
                 child: Transform(transform: Matrix4.skewX(.22), alignment: Alignment.center,
                     child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Text(text, textAlign: TextAlign.center, style: TextStyle(
-                          fontSize: fontSize, fontWeight: FontWeight.w900, letterSpacing: 5,
-                          color: Colors.white, shadows: [Shadow(color: color, blurRadius: 18)])),
-                      if (sub != null) Text(sub, style: const TextStyle(fontSize: 11,
-                          letterSpacing: 3, color: Colors.white70, fontWeight: FontWeight.w700)),
+                      FittedBox(fit: BoxFit.scaleDown, child: Text(text,
+                          maxLines: 1, softWrap: false, textAlign: TextAlign.center,
+                          style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w900,
+                            letterSpacing: 2, color: Colors.white,
+                            shadows: [Shadow(color: color, blurRadius: 18)]))),
+                      if (sub != null) FittedBox(fit: BoxFit.scaleDown,
+                        child: Text(sub, maxLines: 1, softWrap: false, style: const TextStyle(
+                          fontSize: 11, letterSpacing: 2, color: Colors.white70,
+                          fontWeight: FontWeight.w700))),
                     ])),
               )))));
 
@@ -1624,7 +1905,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
         ])));
   }
 
-  Widget _hud() => SizedBox(height: 96, child: Padding(
+  Widget _hud() => SizedBox(height: 108, child: Padding(
       padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
       child: Row(children: [
         Expanded(child: _HudPlate(team: _team(_left), mirrored: false, accent: shineAzure,
@@ -1639,12 +1920,13 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   Widget _stage(Size s) {
     final playWidth = math.min(s.width, 940.0);
     final stageLeft = (s.width - playWidth) / 2;
-    var cw = math.min(playWidth * .36, 192.0);
-    var ch = cw / .64;
-    if (ch > s.height * .82) { ch = s.height * .82; cw = ch * .64; }
-    final cy = s.height * .51;
-    final lc = Offset(stageLeft + playWidth * .30, cy);
-    final rc = Offset(stageLeft + playWidth * .70, cy);
+    final compact = playWidth < 560;
+    var cw = math.min(playWidth * (compact ? .28 : .305), compact ? 145.0 : 190.0);
+    var ch = cw / .66;
+    if (ch > s.height * .76) { ch = s.height * .76; cw = ch * .66; }
+    final cy = s.height * .50;
+    final lc = Offset(stageLeft + playWidth * (compact ? .34 : .31), cy);
+    final rc = Offset(stageLeft + playWidth * (compact ? .66 : .69), cy);
     final gap = rc.dx - lc.dx;
     Offset centerOf(int side) => side == _left ? lc : rc;
     return AnimatedBuilder(animation: _fxC, builder: (context, _) {
@@ -1680,7 +1962,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
       }
       final order = fx != null && fx.actor == _left ? [_right, _left] : [_left, _right];
       final skillP = fx != null && fx.skill ? _seg(t, 0, .8) : 0.0;
-      return Stack(clipBehavior: Clip.none, children: [
+      return Stack(clipBehavior: Clip.hardEdge, children: [
         Positioned.fill(child: CustomPaint(painter: _FloorPainter(
             [lc, rc], cw, ch, [shineAzure, shineEmber]))),
         for (final side in order)
@@ -1690,7 +1972,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
             cw: cw, ch: ch, shieldAmt: shAmt, shieldAlpha: shAl, reserves: rs,
             reserveAlpha: rsAl, aim: aim, aimSide: 1 - activeSide,
             skillAura: _planning && !busy && skill && fx == null, auraSide: activeSide)))),
-        if (fx != null) ..._floats(t, fx, centerOf, ch),
+        if (fx != null) ..._floats(t, fx, centerOf, ch, s.width),
         if (skillP > 0 && skillP < 1) Positioned(left: 0, right: 0, top: s.height * .36,
             child: _skewBanner(text: fx!.skillName.toUpperCase(), sub: 'SKILL AKTIF',
                 color: shineViolet,
@@ -1884,7 +2166,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
             child: IgnorePointer(ignoring: !canPlay, child: _controls(canPlay))),
         if (isWaiting || isPending || ended)
           Positioned.fill(child: ColoredBox(
-              color: const Color(0xE8181525),
+              color: const Color(0xC2181525),
               child: Center(child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
                   child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1892,7 +2174,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                         isPending ? Icons.bolt_rounded :
                         widget.isBotMatch ? Icons.smart_toy_outlined : Icons.sync_rounded,
                         color: shineGold, size: 32),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 10),
                     Text(ended ? 'PERTANDINGAN SELESAI' :
                         isPending ? 'AKSI DIKIRIM' : 'GILIRAN LAWAN',
                         textAlign: TextAlign.center,
@@ -1976,7 +2258,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
       child: ShineScaffold(
       accent: _accent,
       body: LayoutBuilder(builder: (context, bounds) {
-        final wide = bounds.maxWidth >= 850 && bounds.maxHeight >= 450;
+        final wide = bounds.maxWidth >= 1040 && bounds.maxHeight >= 600;
         final mobileScreen = SafeArea(bottom: false, child: Column(children: [
           _hud(),
           Expanded(child: LayoutBuilder(builder: (context, b) =>
@@ -1994,11 +2276,12 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                   Expanded(child: LayoutBuilder(builder: (context, b) =>
                       RepaintBoundary(key: const ValueKey('shine-stage'), child: _stage(b.biggest)))),
                 ])),
-                SizedBox(width: 380, child: _wideCommandDeck(canPlay)),
+                SizedBox(width: (bounds.maxWidth * .29).clamp(320.0, 400.0),
+                    child: _wideCommandDeck(canPlay)),
               ]))))
           : bounds.maxHeight < 470
               ? SingleChildScrollView(physics: const ClampingScrollPhysics(),
-                  child: SizedBox(height: math.max(570.0, bounds.maxHeight),
+                  child: SizedBox(height: math.max(660.0, bounds.maxHeight),
                       child: mobileScreen))
               : mobileScreen;
         return Stack(children: [

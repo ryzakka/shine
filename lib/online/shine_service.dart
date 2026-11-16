@@ -48,6 +48,13 @@ class ShineService {
       .stream(primaryKey: ['id'])
       .eq('id', id);
 
+  /// Kartu dipilih SETELAH kedua akun bergabung ke ruang.
+  Future<void> submitLineup(String roomId, List<String> cards) async {
+    await client.rpc('shine_submit_lineup', params: {
+      'p_room_id': roomId, 'p_cards': cards,
+    });
+  }
+
   Future<void> setReady(String roomId, bool ready) async {
     await client.rpc('shine_set_ready', params: {
       'p_room_id': roomId, 'p_ready': ready,

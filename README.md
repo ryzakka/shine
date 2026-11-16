@@ -1,4 +1,21 @@
-> **UI/UX v1.2.0:** Perbaikan arena anti-patahan, layout responsif ponsel/tablet/desktop, indikator aksi, pembatasan lebar panel, dan uji regresi UI. Lihat [UI_UX_PERUBAHAN.md](UI_UX_PERUBAHAN.md).
+# SHINE v1.3 — Arena Stabil & Multiplayer Draft Bersama
+
+**Pembaruan terbaru** mengatasi kartu/teks keluar bingkai, menambah indikator HP adaptif,
+meningkatkan feedback serangan besar, dan mengubah alur online menjadi:
+
+**Buat ruang → teman bergabung → kedua pemain memilih 3 kartu → reveal 6 kartu → bertarung.**
+
+> **PENTING: versi ini memerlukan migrasi SQL baru.** Pada Supabase SQL Editor,
+> jalankan `supabase/migrations/003_lobby_draft_reveal.sql` **setelah** dua tabel
+> `shine_characters`, `shine_rooms` dan 12 fungsi Shine yang sudah terpasang.
+> Jangan gunakan frontend 1.3 dengan backend 1.2, karena pembuatan lobi
+> tanpa pilihan kartu akan ditolak pada backend lama.
+
+Panduan pembaruan lengkap ada dalam `PERUBAHAN_V13.md`.
+
+---
+
+> **Riwayat UI/UX v1.2.0:** Perbaikan arena anti-patahan, layout responsif ponsel/tablet/desktop, indikator aksi, pembatasan lebar panel, dan uji regresi UI. Lihat [UI_UX_PERUBAHAN.md](UI_UX_PERUBAHAN.md).
 
 # SHINE v1.2.0 — UI/UX responsif (fitur backend v0.3)
 
@@ -41,10 +58,10 @@ Syarat: Flutter SDK (Dart 3.9+), Android SDK, Android Studio dengan Flutter/Dart
 Mode online adalah **dua pemain**, setiap pemain memiliki dan mengendalikan tiga kartu. Lakukan konfigurasi Supabase **sekali**:
 
 1. Buka Supabase Dashboard → project `kluryjachdmtslnnqmdk` → SQL Editor.
-2. Jalankan seluruh file `supabase/migrations/001_shine_mvp.sql`.
+2. Pada proyek yang backend-nya sudah aktif, jalankan `supabase/migrations/003_lobby_draft_reveal.sql`. Paket v1.3 ini bukan paket instalasi database dari nol.
 3. Buka Authentication → Providers → Anonymous Sign-Ins dan aktifkan.
 4. Pastikan `shine_rooms` tercantum pada `supabase_realtime` (migrasi mencoba menambahkannya).
-5. Jalankan Shine di dua perangkat yang terhubung internet. Pemain pertama pilih **Buat ruang online**, bagikan kode enam karakter, pemain kedua pilih **Gabung ruang**.
+5. Buka Shine di dua perangkat. Pemain A membuat ruang, B bergabung, **baru setelah keduanya hadir** masing-masing memilih tiga tokoh. Server menunggu reveal selesai sebelum duel dimulai.
 6. Tombol **Lanjutkan ruang online** memungkinkan kembali ke ruang milik identitas anonymous yang sama jika belum selesai.
 
 **Batasan saat ini:** multiplayer **1 vs 2, 1 vs 3, 2 vs 2, 2 vs 3, dan 3 vs 3 belum diimplementasikan**. Fitur persetujuan swap antar pemilik pada satu tim hanya diperlukan pada format-format tersebut. Jangan menganggapnya sudah tersedia. Setiap aksi online diproses oleh RPC PostgreSQL dengan validasi user, giliran, revision, PA, skill, dan HP.
@@ -88,11 +105,10 @@ shine/
 ├── lib/online/shine_service.dart
 ├── lib/ui/home_page.dart
 ├── lib/ui/arena_page.dart
+├── lib/ui/squad_picker.dart
 ├── assets/portraits/              (26 kartu)
-├── android/app/src/main/          (manifest & MainActivity)
-├── supabase/migrations/001_shine_mvp.sql
-├── play_now/Shine_Mainkan_Sekarang.html
-├── test/battle_match_test.dart
+├── supabase/migrations/003_lobby_draft_reveal.sql
+├── test/arena_responsive_test.dart
 ├── JALANKAN_DI_ANDROID_STUDIO.bat
 └── BUAT_APK_DEBUG.bat
 ```
@@ -116,6 +132,6 @@ Repository: https://github.com/ryzakka/shine
 Baca `GITHUB_CLOUDFLARE_PANDUAN.md` untuk penjelasan lengkap.
 
 
-## Catatan khusus UI/UX v1.2.0
+## Riwayat pembaruan khusus UI/UX v1.2.0
 
-Pembaruan ini hanya mengubah tampilan Flutter dan menambahkan uji regresi UI. **Tidak diperlukan migrasi atau pembuatan ulang tabel Supabase untuk pembaruan UI ini.** Aplikasi tetap memakai tabel dan RPC Shine yang sudah terpasang. Bila versi sebelumnya sudah memiliki perubahan lokal, gabungkan file dengan hati-hati. Instruksi lama tentang migrasi SQL v0.3 hanya relevan untuk instalasi yang belum memasang backend itu.
+Pembaruan ini hanya mengubah tampilan Flutter dan menambahkan uji regresi UI. **Catatan ini hanya berlaku pada revisi v1.2; v1.3 membutuhkan migrasi 003 di atas.** Aplikasi tetap memakai tabel dan RPC Shine yang sudah terpasang. Bila versi sebelumnya sudah memiliki perubahan lokal, gabungkan file dengan hati-hati. Instruksi lama tentang migrasi SQL v0.3 hanya relevan untuk instalasi yang belum memasang backend itu.

@@ -7,6 +7,7 @@ import '../domain/battle_match.dart';
 import '../game/saved_game.dart';
 import '../online/shine_service.dart';
 import 'arena_page.dart';
+import 'squad_picker.dart';
 import 'shine_ui.dart';
 
 class ShineHomePage extends StatefulWidget {
@@ -79,16 +80,12 @@ class _ShineHomePageState extends State<ShineHomePage> {
       _notify('Masukkan kode ruang enam karakter.');
       return;
     }
-    final lineup = await selectSquad(joining
-        ? ['kwontaehyuk', 'kangjiwoo', 'choinari']
-        : ['chaminhyuk', 'leejunseo', 'hanseoah']);
-    if (lineup == null || !mounted) return;
     setState(() => busy = true);
     try {
       final service = ShineService(Supabase.instance.client);
       final info = joining
-          ? await service.joinRoom(code.text, lineup)
-          : await service.createRoom(lineup);
+          ? await service.joinRoom(code.text, const [])
+          : await service.createRoom(const []);
       if (!mounted) return;
       await Navigator.push(context, MaterialPageRoute(
         builder: (_) => OnlineArenaPage(roomId: info['id'] as String,
@@ -152,7 +149,7 @@ class _ShineHomePageState extends State<ShineHomePage> {
     (Icons.flag_outlined, 'Kemenangan',
     'Tim yang kehilangan ketiga tokohnya kalah.'),
     (Icons.public, 'Lobi online',
-    'Tamu menekan Siap, host memilih timer 20–60 detik lalu menekan Mulai. Pemain dapat menyerah; host dapat membubarkan ruang. Tombol Beranda tidak mengakhiri pertandingan.'),
+    'Host membuat ruang dan pemain kedua bergabung. Setelah dua pemain hadir, masing-masing memilih 3 kartu. Keenam kartu diungkap bergiliran sebelum pertarungan dimulai otomatis.'),
   ];
 
   void _howToPlay() => showModalBottomSheet<void>(context: context,
@@ -279,46 +276,57 @@ class _ShineHomePageState extends State<ShineHomePage> {
 
   Widget _onlineCard() => ShinePanel(
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      const Text('DUA PEMAIN, SATU PANGGUNG', style: TextStyle(
+        color: shineGold, fontSize: 12, letterSpacing: 1.3, fontWeight: FontWeight.w900)),
+      const SizedBox(height: 6),
+      const Text('Bergabung dahulu. Kalian baru memilih 3 kartu setelah hadir berdua.',
+        style: TextStyle(fontSize: 12, color: shineMuted, height: 1.45)),
+      const SizedBox(height: 14),
+      Wrap(spacing: 6, runSpacing: 7, children: const [
+        StatPill('1 • MASUK LOBI', icon: Icons.groups_outlined, color: shineAzure),
+        StatPill('2 • PILIH KARTU', icon: Icons.style_outlined, color: shineGold),
+        StatPill('3 • REVEAL & DUEL', icon: Icons.auto_awesome, color: shineViolet),
+      ]),
+      const SizedBox(height: 18),
       ShineButton(primary: false, icon: Icons.add_circle_outline,
-          label: 'BUAT LOBI 1 vs 1', subtitle: 'Bagikan kode ke temanmu',
-          onPressed: busy ? null : () => online(joining: false)),
+        label: 'BUAT RUANG BARU', subtitle: 'Undang teman dengan kode 6 karakter',
+        onPressed: busy ? null : () => online(joining: false)),
       Padding(padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Row(children: [
-            Expanded(child: Divider(color: Colors.white.withValues(alpha: .12))),
-            const Padding(padding: EdgeInsets.symmetric(horizontal: 10),
-                child: Text('ATAU GABUNG', style: TextStyle(fontSize: 10,
-                    color: shineMuted, letterSpacing: 2, fontWeight: FontWeight.w800))),
-            Expanded(child: Divider(color: Colors.white.withValues(alpha: .12))),
-          ])),
-      Row(children: [
-        Expanded(child: TextField(
-          controller: code, maxLength: 6,
-          textCapitalization: TextCapitalization.characters,
+        child: Row(children: [
+          Expanded(child: Divider(color: Colors.white.withValues(alpha: .12))),
+          const Padding(padding: EdgeInsets.symmetric(horizontal: 10),
+            child: Text('ATAU GABUNG', style: TextStyle(fontSize: 10,
+              color: shineMuted, letterSpacing: 2, fontWeight: FontWeight.w800))),
+          Expanded(child: Divider(color: Colors.white.withValues(alpha: .12))),
+        ])),
+      LayoutBuilder(builder: (context, bounds) {
+        final codeInput = TextField(
+          controller: code, maxLength: 6, textCapitalization: TextCapitalization.characters,
           textAlign: TextAlign.center,
           inputFormatters: [FilteringTextInputFormatter.allow(RegExp('[A-Fa-f0-9]'))],
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900,
-              letterSpacing: 6, color: shineGold),
-          decoration: InputDecoration(
-            counterText: '', hintText: 'A1B2C3', filled: true,
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: .2), letterSpacing: 6),
-            fillColor: Colors.black.withValues(alpha: .28),
+          style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900,
+            letterSpacing: 4, color: shineGold),
+          decoration: InputDecoration(counterText: '', hintText: 'A1B2C3',
+            filled: true, fillColor: Colors.black.withValues(alpha: .28),
             contentPadding: const EdgeInsets.symmetric(vertical: 15),
             enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: Colors.white12)),
+              borderSide: const BorderSide(color: Colors.white12)),
             focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: shineGold, width: 1.4)),
-          ),
-        )),
-        const SizedBox(width: 10),
-        SizedBox(width: 118, child: ShineButton(label: 'GABUNG', height: 56,
-            onPressed: busy ? null : () => online(joining: true))),
-      ]),
-      const SizedBox(height: 6),
+              borderSide: const BorderSide(color: shineGold, width: 1.4))));
+        final join = ShineButton(label: 'GABUNG', height: 56,
+          onPressed: busy ? null : () => online(joining: true));
+        if (bounds.maxWidth < 365) {
+          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            codeInput, const SizedBox(height: 10), join]);
+        }
+        return Row(children: [Expanded(child: codeInput), const SizedBox(width: 10),
+          SizedBox(width: 118, child: join)]);
+      }),
+      const SizedBox(height: 10),
       TextButton.icon(onPressed: busy ? null : resumeOnline,
-          icon: const Icon(Icons.restore, size: 18),
-          label: const Text('Lobi saya / lanjutkan pertandingan')),
-    ]),
-  );
+        icon: const Icon(Icons.restore, size: 18),
+        label: const Text('KEMBALI KE RUANG SAYA')),
+    ]));
 
   Widget _playModes() => Reveal(index: 2,
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -440,9 +448,9 @@ class _Hero extends StatelessWidget {
           shaderCallback: (r) => const LinearGradient(
               begin: Alignment.topCenter, end: Alignment.bottomCenter,
               colors: [shineGoldLight, shineGold, shineGoldDeep]).createShader(r),
-          child: const Text('SHINE', style: TextStyle(fontSize: 58,
+          child: const FittedBox(fit: BoxFit.scaleDown, child: Text('SHINE', style: TextStyle(fontSize: 58,
               fontWeight: FontWeight.w900, letterSpacing: 12, color: Colors.white,
-              height: 1, shadows: [Shadow(color: Color(0x99EFC483), blurRadius: 28)])),
+              height: 1, shadows: [Shadow(color: Color(0x99EFC483), blurRadius: 28)]))),
         ),
         const SizedBox(height: 8),
         const Text('MANHWA CARD BATTLE', style: TextStyle(fontSize: 11,
@@ -458,239 +466,3 @@ class _Hero extends StatelessWidget {
   );
 }
 
-// ───────────── Pemilih tim ─────────────
-
-class SquadPicker extends StatefulWidget {
-  const SquadPicker({super.key, required this.defaults, this.title = 'RAKIT TIM'});
-  final List<String> defaults;
-  final String title;
-  @override
-  State<SquadPicker> createState() => _SquadPickerState();
-}
-
-class _SquadPickerState extends State<SquadPicker> {
-  late final List<String> selected = [...widget.defaults];
-
-  void _toggle(CharacterSpec c) {
-    final isSelected = selected.contains(c.id);
-    if (!isSelected && selected.length >= 3) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Satu tim hanya boleh membawa tiga tokoh.')));
-      return;
-    }
-    HapticFeedback.selectionClick();
-    setState(() => isSelected ? selected.remove(c.id) : selected.add(c.id));
-  }
-
-  void _detail(CharacterSpec c) => showModalBottomSheet<void>(
-    context: context,
-    builder: (ctx) => SafeArea(child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Portrait(c, width: 104, height: 150, radius: 14),
-          const SizedBox(width: 16),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(c.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-            const SizedBox(height: 10),
-            Wrap(spacing: 6, runSpacing: 6, children: [
-              StatPill('HP ${c.hp}', icon: Icons.favorite, color: shineJade),
-              StatPill('ATK ${c.attack}', icon: Icons.bolt, color: shineEmber),
-            ]),
-            const SizedBox(height: 14),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                  color: shineViolet.withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: shineViolet.withValues(alpha: .4))),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  const Icon(Icons.auto_awesome, size: 16, color: shineViolet),
-                  const SizedBox(width: 6),
-                  Expanded(child: Text(c.skill, style: const TextStyle(
-                      fontWeight: FontWeight.w800, color: shineViolet))),
-                ]),
-                const SizedBox(height: 4),
-                Text(skillText(c), style: const TextStyle(fontSize: 12, height: 1.4)),
-                const SizedBox(height: 8),
-                Wrap(spacing: 6, children: [
-                  StatPill('${c.cost} PA', color: shineGold),
-                  StatPill('CD ${c.cooldown}', color: shineGold),
-                  StatPill(skillKindLabel(c.kind), color: shineViolet),
-                ]),
-              ]),
-            ),
-          ])),
-        ]),
-        const SizedBox(height: 18),
-        ShineButton(
-            label: selected.contains(c.id) ? 'LEPAS DARI TIM' : 'MASUKKAN KE TIM',
-            icon: selected.contains(c.id) ? Icons.remove_circle_outline : Icons.add_circle_outline,
-            primary: !selected.contains(c.id),
-            onPressed: () { Navigator.pop(ctx); _toggle(c); }),
-      ]),
-    )),
-  );
-
-  Widget _slot(int i) {
-    if (i >= selected.length) {
-      return Container(
-        decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: .03),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.white24)),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          const Icon(Icons.add, color: Colors.white38),
-          const SizedBox(height: 2),
-          Text('SLOT ${i + 1}', style: const TextStyle(
-              fontSize: 10, color: Colors.white38, letterSpacing: 1.5)),
-        ]),
-      );
-    }
-    final c = characterById(selected[i]);
-    return GestureDetector(
-      onTap: () => setState(() => selected.removeAt(i)),
-      child: Container(
-        decoration: BoxDecoration(borderRadius: BorderRadius.circular(14),
-            boxShadow: [BoxShadow(color: shineGold.withValues(alpha: .3), blurRadius: 16, spreadRadius: -4)]),
-        child: Stack(fit: StackFit.expand, children: [
-          Portrait(c, radius: 14),
-          Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                  stops: const [.5, 1], colors: [Colors.transparent, Colors.black.withValues(alpha: .85)])))),
-          Positioned(left: 6, right: 6, bottom: 5, child: Text(c.name,
-              maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800))),
-          Positioned(top: 5, left: 5, child: CircleAvatar(radius: 10,
-              backgroundColor: shineGold, child: Text('${i + 1}', style: const TextStyle(
-                  color: Colors.black, fontSize: 11, fontWeight: FontWeight.w900)))),
-          const Positioned(top: 5, right: 5, child: Icon(Icons.cancel, size: 18, color: Colors.white70)),
-        ]),
-      ),
-    );
-  }
-
-  Widget _tile(CharacterSpec c) {
-    final isSelected = selected.contains(c.id);
-    final full = selected.length >= 3;
-    return AnimatedOpacity(
-      duration: const Duration(milliseconds: 200),
-      opacity: !isSelected && full ? .5 : 1,
-      child: GestureDetector(
-        onTap: () => _toggle(c),
-        onLongPress: () => _detail(c),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 220),
-          decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: isSelected ? shineGold : Colors.white12,
-                  width: isSelected ? 2.2 : 1),
-              boxShadow: isSelected
-                  ? [BoxShadow(color: shineGold.withValues(alpha: .4), blurRadius: 18, spreadRadius: -2)]
-                  : null),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(14),
-            child: Stack(fit: StackFit.expand, children: [
-              Portrait(c, radius: 0, border: false),
-              DecoratedBox(decoration: BoxDecoration(gradient: LinearGradient(
-                  begin: Alignment.topCenter, end: Alignment.bottomCenter,
-                  stops: const [.5, 1],
-                  colors: [Colors.transparent, Colors.black.withValues(alpha: .92)]))),
-              Positioned(left: 8, right: 8, bottom: 8, child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(c.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
-                const SizedBox(height: 2),
-                Text('ATK ${c.attack}  •  HP ${c.hp}',
-                    style: const TextStyle(fontSize: 10, color: Colors.white70)),
-                Text(c.skill, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10, color: shineGold, fontWeight: FontWeight.w700)),
-              ])),
-              if (isSelected) Positioned(top: 7, right: 7, child: CircleAvatar(
-                  radius: 13, backgroundColor: shineGold,
-                  child: Text('${selected.indexOf(c.id) + 1}', style: const TextStyle(
-                      color: Colors.black, fontSize: 13, fontWeight: FontWeight.w900)))),
-            ]),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _teamSummary() => ShinePanel(
-    padding: const EdgeInsets.all(10), radius: 18,
-    child: Column(children: [
-      SizedBox(height: 118, child: Row(children: [
-        for (var i = 0; i < 3; i++) Expanded(child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4), child: _slot(i))),
-      ])),
-      const SizedBox(height: 10),
-      Text('${selected.length}/3 tokoh • ketuk untuk melepas',
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 11, color: shineMuted)),
-    ]));
-
-  Widget _characterGrid() => GridView.builder(
-    padding: const EdgeInsets.fromLTRB(10, 10, 10, 14),
-    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 190, childAspectRatio: .66,
-        crossAxisSpacing: 12, mainAxisSpacing: 12),
-    itemCount: characters.length,
-    itemBuilder: (context, i) => _tile(characters[i]));
-
-  @override
-  Widget build(BuildContext context) {
-    final remaining = 3 - selected.length;
-    return ShineScaffold(
-      appBar: AppBar(title: Text(widget.title), actions: [
-        TextButton(onPressed: selected.isEmpty ? null : () => setState(selected.clear),
-            child: const Text('Kosongkan')),
-      ]),
-      body: SafeArea(child: LayoutBuilder(builder: (context, size) {
-        final wide = size.maxWidth >= 800;
-        return Center(child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1280),
-          child: Column(children: [
-            Expanded(child: wide
-              ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  SizedBox(width: 300, child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 10, 0),
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      const SectionLabel('TIM PILIHAN'),
-                      _teamSummary(),
-                      const SizedBox(height: 14),
-                      const Text('Pilih tepat tiga tokoh. Ketuk kartu untuk memilih. '
-                          'Tahan kartu untuk melihat skill, biaya PA, dan cooldown.',
-                          style: TextStyle(color: shineMuted, fontSize: 12, height: 1.5)),
-                    ]))),
-                  VerticalDivider(width: 1, color: Colors.white.withValues(alpha: .12)),
-                  Expanded(child: _characterGrid()),
-                ])
-              : Column(children: [
-                  Padding(padding: const EdgeInsets.fromLTRB(14, 4, 14, 6),
-                      child: _teamSummary()),
-                  Expanded(child: _characterGrid()),
-                ])),
-            Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-              decoration: BoxDecoration(
-                  color: const Color(0xFF14111F),
-                  border: Border(top: BorderSide(color: shineGold.withValues(alpha: .2)))),
-              child: Center(child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 580),
-                  child: ShineButton(
-                  icon: remaining == 0 ? Icons.check : Icons.person_add_alt,
-                  label: remaining == 0 ? 'MULAI DENGAN 3 TOKOH' : 'PILIH $remaining TOKOH LAGI',
-                  onPressed: remaining == 0
-                      ? () => Navigator.pop(context, List<String>.from(selected)) : null))),
-            ),
-          ]),
-        ));
-      })),
-    );
-  }
-
-}

@@ -13,6 +13,25 @@ const shineAzure = Color(0xFF5CC8FF); // pemain / bertahan
 const shineJade = Color(0xFF59E0A0); // siap / pulih
 const shineViolet = Color(0xFFB48CFF); // skill
 
+/// HP is a survival cue, never the same color as the player's team.
+Color hpStatusColor(int hp, int maxHp) {
+  if (hp <= 0) return const Color(0xFF8A8794);
+  final ratio = maxHp <= 0 ? 0.0 : hp / maxHp;
+  if (ratio > .65) return const Color(0xFF55E69B);
+  if (ratio > .40) return const Color(0xFFFFDE66);
+  if (ratio > .20) return const Color(0xFFFF973C);
+  return const Color(0xFFFF465C);
+}
+
+String hpStatusLabel(int hp, int maxHp) {
+  if (hp <= 0) return 'KO';
+  final ratio = maxHp <= 0 ? 0.0 : hp / maxHp;
+  if (ratio > .65) return 'AMAN';
+  if (ratio > .40) return 'WASPADA';
+  if (ratio > .20) return 'TERLUKA';
+  return 'SEKARAT';
+}
+
 String skillKindLabel(String kind) => switch (kind) {
   'damage' => 'Damage bonus',
   'pierce' => 'Tembus pertahanan',
@@ -309,42 +328,41 @@ class Portrait extends StatelessWidget {
 }
 
 class HpBar extends StatelessWidget {
-  const HpBar({super.key, required this.hp, required this.maxHp, this.height = 16, this.showText = true});
+  const HpBar({super.key, required this.hp, required this.maxHp,
+    this.height = 16, this.showText = true});
   final int hp, maxHp;
   final double height;
   final bool showText;
 
   @override
   Widget build(BuildContext context) {
-    final f = maxHp == 0 ? 0.0 : (hp / maxHp).clamp(0.0, 1.0);
+    final fraction = maxHp <= 0 ? 0.0 : (hp / maxHp).clamp(0.0, 1.0);
+    final color = hpStatusColor(hp, maxHp);
     return TweenAnimationBuilder<double>(
-      tween: Tween(end: f),
-      duration: const Duration(milliseconds: 750),
+      tween: Tween(end: fraction), duration: const Duration(milliseconds: 700),
       curve: Curves.easeOutCubic,
-      builder: (context, v, _) {
-        final c = v > .5 ? shineJade : (v > .25 ? const Color(0xFFFFB84D) : shineEmber);
-        return Container(
-          height: height,
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: .45),
-            borderRadius: BorderRadius.circular(height),
-            border: Border.all(color: Colors.white12),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(height),
-            child: Stack(children: [
-              FractionallySizedBox(
-                widthFactor: v.clamp(0.0, 1.0),
-                child: DecoratedBox(decoration: BoxDecoration(
-                    gradient: LinearGradient(colors: [c.withValues(alpha: .75), c]))),
-              ),
-              if (showText) Center(child: Text('$hp / $maxHp', style: const TextStyle(
-                  fontSize: 10, fontWeight: FontWeight.w800, color: Colors.white,
-                  shadows: [Shadow(color: Colors.black, blurRadius: 3)]))),
+      builder: (context, v, _) => Container(
+        height: height,
+        decoration: BoxDecoration(
+          color: const Color(0xFF070B13), borderRadius: BorderRadius.circular(height),
+          border: Border.all(color: color.withValues(alpha: .4))),
+        child: ClipRRect(borderRadius: BorderRadius.circular(height),
+          child: Stack(fit: StackFit.expand, children: [
+            FractionallySizedBox(alignment: Alignment.centerLeft,
+              widthFactor: v.clamp(0.0, 1.0),
+              child: DecoratedBox(decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [color.withValues(alpha: .73), color])))),
+            if (height >= 7) Row(children: [
+              for (var i = 0; i < 9; i++) Expanded(child: Align(
+                alignment: Alignment.centerRight,
+                child: Container(width: 1, color: Colors.black.withValues(alpha: .23)))),
             ]),
-          ),
-        );
-      },
+            if (showText) Center(child: Text('$hp / $maxHp',
+              style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 10,
+                color: Colors.white,
+                shadows: [Shadow(color: Colors.black, blurRadius: 4)]))),
+          ])),
+      ),
     );
   }
 }

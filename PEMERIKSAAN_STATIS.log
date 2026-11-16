@@ -1,0 +1,17 @@
+PASS syntax delimiters & strings: lib/data/character_catalog.dart
+PASS syntax delimiters & strings: lib/data/characters.dart
+PASS syntax delimiters & strings: lib/domain/battle_match.dart
+PASS syntax delimiters & strings: lib/domain/battle_rules.dart
+PASS syntax delimiters & strings: lib/game/bot_player.dart
+PASS syntax delimiters & strings: lib/game/saved_game.dart
+PASS syntax delimiters & strings: lib/main.dart
+PASS syntax delimiters & strings: lib/online/shine_service.dart
+PASS syntax delimiters & strings: lib/ui/arena_page.dart
+PASS syntax delimiters & strings: lib/ui/home_page.dart
+PASS syntax delimiters & strings: lib/ui/shine_ui.dart
+PASS syntax delimiters & strings: lib/ui/squad_picker.dart
+PASS syntax delimiters & strings: test/arena_responsive_test.dart
+PASS gameplay and character catalog unchanged
+CHARACTERS 26
+PASS 26 portrait WebP files
+PASS responsive structure and stable stage markers
