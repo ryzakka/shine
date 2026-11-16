@@ -89,8 +89,8 @@ class _LocalArenaPageState extends State<LocalArenaPage> {
   void _playAgain() {
     final a = widget.battle.teams[0].fighters.map((f) => f.spec.id).toList();
     final b = widget.battle.teams[1].fighters.map((f) => f.spec.id).toList();
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => LocalArenaPage(
+    Navigator.of(context).pushReplacement(shineRoute<void>(
+      LocalArenaPage(
         battle: LocalBattle(teamA: a, teamB: b),
         againstBot: widget.againstBot,
         difficulty: widget.difficulty,
@@ -220,11 +220,14 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
     final hostCards = (room['host_cards'] as List? ?? []).map((e) => e.toString()).toList();
     final guestCards = (room['guest_cards'] as List? ?? []).map((e) => e.toString()).toList();
     return ShineScaffold(
+      embers: true,
       appBar: AppBar(title: const Text('LOBI SHINE'), actions: [
         IconButton(tooltip:'Beranda (ruang tetap ada)',
             onPressed: () => Navigator.pop(context), icon: const Icon(Icons.home_outlined)),
       ]),
-      body: SafeArea(child: ListView(padding: const EdgeInsets.fromLTRB(18, 4, 18, 24), children: [
+      body: SafeArea(child: Center(child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 620),
+          child: ListView(padding: const EdgeInsets.fromLTRB(18, 4, 18, 24), children: [
         Reveal(child: ShinePanel(glow: shineGold, borderColor: shineGold.withValues(alpha: .5),
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
             child: Column(children: [
@@ -297,7 +300,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
         }, style: TextButton.styleFrom(foregroundColor: shineEmber),
             icon: Icon(isHost ? Icons.delete_outline : Icons.exit_to_app),
             label: Text(isHost ? 'Bubarkan lobi' : 'Keluar dari lobi')),
-      ])),
+      ])))),
     );
   }
 
@@ -837,9 +840,10 @@ class _CardFace extends StatelessWidget {
 
 class _HudPlate extends StatelessWidget {
   const _HudPlate({required this.team, required this.mirrored,
-    required this.accent, required this.label, required this.isTurn});
+    required this.accent, required this.label, required this.isTurn,
+    this.big = false});
   final Map<String,dynamic> team;
-  final bool mirrored, isTurn;
+  final bool mirrored, isTurn, big;
   final Color accent;
   final String label;
 
@@ -858,12 +862,14 @@ class _HudPlate extends StatelessWidget {
           Text(label, style: TextStyle(color: accent, fontSize: 9,
               fontWeight: FontWeight.w900, letterSpacing: 1.4)),
           Text(spec.name.toUpperCase(), maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, letterSpacing: .6)),
+              style: TextStyle(fontSize: big ? 14 : 12,
+                  fontWeight: FontWeight.w900, letterSpacing: .6)),
           const SizedBox(height: 3),
           Row(mainAxisAlignment: mirrored ? MainAxisAlignment.end : MainAxisAlignment.start,
               children: [
                 const Icon(Icons.add, size: 15, color: shineAzure),
-                Text('$hp', style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w900)),
+                Text('$hp', style: TextStyle(
+                    fontSize: big ? 21 : 17, fontWeight: FontWeight.w900)),
               ]),
           HpBar(hp: hp, maxHp: maxHp, height: 8, showText: false),
           const SizedBox(height: 4),
@@ -882,7 +888,7 @@ class _HudPlate extends StatelessWidget {
                     fontSize: 12, fontWeight: FontWeight.w900, color: shineAzure)),
               ]),
         ]));
-    final thumb = Portrait(spec, width: 54, height: 72, radius: 10);
+    final thumb = Portrait(spec, width: big ? 66 : 54, height: big ? 88 : 72, radius: 10);
     return Container(
       padding: const EdgeInsets.all(6),
       decoration: BoxDecoration(
@@ -933,7 +939,7 @@ class _HexPainter extends CustomPainter {
 class _HexButton extends StatelessWidget {
   const _HexButton({required this.icon, required this.color, required this.label,
     required this.count, required this.onTap, this.onMinus, this.onLongPress,
-    this.enabled = true, this.cooldown = 0, this.badgeText});
+    this.enabled = true, this.cooldown = 0, this.badgeText, this.scale = 1});
   final IconData icon;
   final Color color;
   final String label;
@@ -941,46 +947,52 @@ class _HexButton extends StatelessWidget {
   final String? badgeText;
   final VoidCallback? onTap, onMinus, onLongPress;
   final bool enabled;
+  final double scale;
 
   @override
   Widget build(BuildContext context) => Column(mainAxisSize: MainAxisSize.min, children: [
-    SizedBox(width: 76, height: 66, child: GestureDetector(
+    SizedBox(width: 76 * scale, height: 66 * scale, child: GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: enabled ? onTap : null, onLongPress: enabled ? onLongPress : null,
-      child: AnimatedScale(
-        duration: const Duration(milliseconds: 160), scale: count > 0 ? 1.06 : 1,
-        child: Stack(children: [
-          Positioned.fill(child: CustomPaint(painter: _HexPainter(color, count > 0, enabled))),
-          Center(child: cooldown > 0
-              ? Column(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.hourglass_bottom, color: Colors.white70, size: 20),
-            Text('$cooldown', style: const TextStyle(color: Colors.white,
-                fontWeight: FontWeight.w900, fontSize: 15)),
-          ])
-              : Icon(icon, color: Colors.white, size: 31,
-              shadows: const [Shadow(color: Colors.black54, blurRadius: 6)])),
-          Positioned(right: 0, bottom: 0, child: Container(
-              constraints: const BoxConstraints(minWidth: 26),
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(color: const Color(0xFF12101C),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: color, width: 1.6)),
-              child: Text(badgeText ?? '$count', textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900,
-                      fontSize: 13)))),
-          if (onMinus != null && count > 0) Positioned(left: 0, top: 0,
-              child: GestureDetector(onTap: onMinus, child: Container(
-                  width: 24, height: 24,
-                  decoration: BoxDecoration(color: const Color(0xFF12101C), shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white70)),
-                  child: const Icon(Icons.remove, size: 15, color: Colors.white)))),
-        ]),
+      child: MouseRegion(
+        cursor: enabled ? SystemMouseCursors.click : MouseCursor.defer,
+        child: AnimatedScale(
+          duration: const Duration(milliseconds: 160), scale: count > 0 ? 1.06 : 1,
+          child: Stack(children: [
+            Positioned.fill(child: CustomPaint(painter: _HexPainter(color, count > 0, enabled))),
+            Center(child: cooldown > 0
+                ? Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.hourglass_bottom, color: Colors.white70, size: 20),
+              Text('$cooldown', style: const TextStyle(color: Colors.white,
+                  fontWeight: FontWeight.w900, fontSize: 15)),
+            ])
+                : Icon(icon, color: Colors.white, size: 31 * scale,
+                shadows: const [Shadow(color: Colors.black54, blurRadius: 6)])),
+            Positioned(right: 0, bottom: 0, child: Container(
+                constraints: const BoxConstraints(minWidth: 26),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(color: const Color(0xFF12101C),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: color, width: 1.6)),
+                child: Text(badgeText ?? '$count', textAlign: TextAlign.center,
+                    style: const TextStyle(color: Colors.white,
+                        fontWeight: FontWeight.w900, fontSize: 13)))),
+            if (onMinus != null && count > 0) Positioned(left: 0, top: 0,
+                child: GestureDetector(onTap: onMinus, child: Container(
+                    width: 24, height: 24,
+                    decoration: BoxDecoration(color: const Color(0xFF12101C), shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white70)),
+                    child: const Icon(Icons.remove, size: 15, color: Colors.white)))),
+          ]),
+        ),
       ),
     )),
     const SizedBox(height: 4),
-    Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
-        fontSize: 10.5, fontWeight: FontWeight.w900, letterSpacing: .8,
-        color: enabled ? Color.lerp(color, Colors.white, .35) : Colors.white38)),
+    SizedBox(width: 82 * scale, child: Text(label, maxLines: 2,
+        textAlign: TextAlign.center, overflow: TextOverflow.ellipsis,
+        style: TextStyle(fontSize: 10, height: 1.1,
+            fontWeight: FontWeight.w900, letterSpacing: .6,
+            color: enabled ? Color.lerp(color, Colors.white, .35) : Colors.white38))),
   ]);
 }
 
@@ -1018,6 +1030,8 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   int _turnTotal = 30;
   bool _resultReady = false;
   _Fx? _event;
+  bool _wide = false; // diperbarui di build(): true bila layar lebar (dock kontrol di kanan)
+  bool _short = false; // layar sangat pendek (ponsel landscape): HUD diringkas
   late final AnimationController _fxC = AnimationController(
       vsync: this, duration: const Duration(milliseconds: 1900));
   late final AnimationController _amb = AnimationController(
@@ -1473,7 +1487,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                 child: GestureDetector(
                   onTap: tappable && alive ? () => _confirmSwap(i) : null,
                   child: Opacity(opacity: alive ? 1 : .4, child: Container(
-                    width: 50, height: 70,
+                    width: _wide ? 62 : 50, height: _wide ? 86 : 70,
                     decoration: BoxDecoration(borderRadius: BorderRadius.circular(11),
                         boxShadow: tappable && alive
                             ? [BoxShadow(color: shineGold.withValues(alpha: .5), blurRadius: 12)]
@@ -1613,24 +1627,62 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
         ]));
   }
 
-  Widget _hud() => SizedBox(height: 96, child: Padding(
-      padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+  Widget _hud() => SizedBox(height: _short ? 88 : (_wide ? 112 : 96), child: Padding(
+      padding: EdgeInsets.fromLTRB(_wide ? 16 : 8, 6, _wide ? 16 : 8, 0),
       child: Row(children: [
         Expanded(child: _HudPlate(team: _team(_left), mirrored: false, accent: shineAzure,
-            label: _sideLabel(_left),
+            label: _sideLabel(_left), big: _wide && !_short,
             isTurn: widget.state['winner'] == null && activeSide == _left)),
         Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: _timerHex()),
         Expanded(child: _HudPlate(team: _team(_right), mirrored: true, accent: shineEmber,
-            label: _sideLabel(_right),
+            label: _sideLabel(_right), big: _wide && !_short,
             isTurn: widget.state['winner'] == null && activeSide == _right)),
       ])));
 
+  /// Bilah atas: tombol menu yang jelas, status giliran, dan riwayat.
+  Widget _topBar() {
+    final over = widget.state['winner'] != null;
+    final color = over ? shineGold : _accent;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 0),
+      child: SizedBox(height: 44, child: Row(children: [
+        IconButton(tooltip: 'Menu pertandingan', onPressed: _showMenu,
+            icon: const Icon(Icons.menu_rounded, color: shineGold)),
+        Expanded(child: Center(child: AnimatedContainer(
+          duration: const Duration(milliseconds: 300),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: .14),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withValues(alpha: .6)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(
+                shape: BoxShape.circle, color: color,
+                boxShadow: [BoxShadow(color: color, blurRadius: 8)])),
+            const SizedBox(width: 8),
+            Flexible(child: Text(_turnLabel, maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900,
+                    letterSpacing: 1.8))),
+          ]),
+        ))),
+        if (widget.history.isEmpty)
+          const SizedBox(width: 48)
+        else
+          IconButton(tooltip: 'Riwayat pertarungan', onPressed: _showHistory,
+              icon: const Icon(Icons.history_rounded, color: shineGold)),
+      ])),
+    );
+  }
+
   Widget _stage(Size s) {
-    var cw = math.min(s.width * .36, 170.0);
+    var cw = math.min(s.width * (_wide ? .30 : .36), _wide ? 250.0 : 170.0);
     var ch = cw / .64;
     if (ch > s.height * .86) { ch = s.height * .86; cw = ch * .64; }
     final cy = s.height * .53;
-    final lc = Offset(s.width * .30, cy), rc = Offset(s.width * .70, cy);
+    final sx = _wide ? .32 : .30;
+    final lc = Offset(s.width * sx, cy), rc = Offset(s.width * (1 - sx), cy);
     final gap = rc.dx - lc.dx;
     Offset centerOf(int side) => side == _left ? lc : rc;
     return AnimatedBuilder(animation: _fxC, builder: (context, _) {
@@ -1720,17 +1772,18 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     ]);
   }
 
-  Widget _controls(bool canPlay) {
+  Widget _controls(bool canPlay, {bool dock = false}) {
     final cd = (ownCard['cd'] as num).toInt();
     final issue = _issue;
     final left = available - spent;
+    final scale = dock ? 1.1 : 1.0;
     final hint = issue ?? (skill ? skillText(spec)
         : 'Ketuk heksagon untuk menambah PA • tahan untuk mengisi sisa');
     return Container(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-      decoration: BoxDecoration(
-          gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [const Color(0xE61A1727), const Color(0xF20E0C16)]),
+      padding: EdgeInsets.fromLTRB(dock ? 18 : 14, dock ? 18 : 10, dock ? 18 : 14, dock ? 18 : 10),
+      decoration: dock ? null : BoxDecoration(
+          gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+              colors: [Color(0xE61A1727), Color(0xF20E0C16)]),
           border: Border(top: BorderSide(color: _accent.withValues(alpha: .5))),
           boxShadow: [BoxShadow(color: _accent.withValues(alpha: .2), blurRadius: 24, offset: const Offset(0, -6))]),
       child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -1751,51 +1804,93 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                   ])),
           const SizedBox(width: 12),
           Expanded(child: _pips()),
+          IconButton(
+            tooltip: 'Atur ulang alokasi PA',
+            visualDensity: VisualDensity.compact,
+            onPressed: canPlay ? () => setState(reset) : null,
+            icon: const Icon(Icons.restart_alt_rounded, color: shineMuted),
+          ),
         ]),
         const SizedBox(height: 6),
         AnimatedSwitcher(duration: const Duration(milliseconds: 200),
             child: Text(hint, key: ValueKey(hint), textAlign: TextAlign.center,
                 maxLines: 2, overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 11.5, height: 1.3,
+                style: TextStyle(fontSize: dock ? 12.5 : 11.5, height: 1.3,
                     color: issue != null && spent == available ? shineEmber : shineMuted))),
-        const SizedBox(height: 8),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+        SizedBox(height: dock ? 14 : 8),
+        FittedBox(fit: BoxFit.scaleDown, child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start, children: [
           _HexButton(icon: Icons.inventory_2_outlined, color: const Color(0xFFFF9F1C),
-              label: 'CADANGKAN', count: reserve, enabled: canPlay,
+              label: 'CADANGKAN', count: reserve, enabled: canPlay, scale: scale,
               onTap: () => _add('r'), onLongPress: () => _add('r', fill: true),
               onMinus: () => setState(() => reserve--)),
+          const SizedBox(width: 8),
           _HexButton(icon: Icons.shield, color: const Color(0xFF2E7DFF),
-              label: 'BERTAHAN', count: defend, enabled: canPlay,
+              label: 'BERTAHAN', count: defend, enabled: canPlay, scale: scale,
               onTap: () => _add('d'), onLongPress: () => _add('d', fill: true),
               onMinus: () => setState(() => defend--)),
+          const SizedBox(width: 8),
           _HexButton(icon: Icons.flash_on, color: const Color(0xFFE53545),
-              label: 'SERANG', count: attack, enabled: canPlay,
+              label: 'SERANG', count: attack, enabled: canPlay, scale: scale,
               onTap: () => _add('a'), onLongPress: () => _add('a', fill: true),
               onMinus: () => setState(() => attack--)),
+          const SizedBox(width: 8),
           _HexButton(icon: Icons.auto_awesome, color: const Color(0xFF8E5BFF),
-              label: spec.skill.toUpperCase(), count: skill ? 1 : 0,
+              label: spec.skill.toUpperCase(), count: skill ? 1 : 0, scale: scale,
               badgeText: skill ? '✓' : '${spec.cost}PA', cooldown: cd,
               enabled: canPlay && cd == 0, onTap: () => _toggleSkill(!skill)),
-        ]),
-        const SizedBox(height: 10),
-        ShineButton(icon: Icons.check_circle_outline, label: 'JALANKAN AKSI', height: 50,
+        ])),
+        SizedBox(height: dock ? 18 : 10),
+        ShineButton(icon: Icons.check_circle_outline, label: 'JALANKAN AKSI',
+            height: dock ? 58 : 50,
             onPressed: issue == null && canPlay ? () => submit() : null),
       ]),
     );
   }
 
-  Widget _waiting() => Container(
-      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
-      decoration: BoxDecoration(color: const Color(0xE60E0C16),
-          border: Border(top: BorderSide(color: _accent.withValues(alpha: .4)))),
-      child: SafeArea(top: false, child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const SizedBox(width: 18, height: 18,
-            child: CircularProgressIndicator(strokeWidth: 2.2, color: shineGold)),
-        const SizedBox(width: 12),
-        Flexible(child: Text(widget.isBotMatch ? 'Komputer sedang menentukan aksi…'
-            : 'Menunggu giliran atau sinkronisasi lawan…',
-            style: const TextStyle(color: shineMuted, fontSize: 13))),
-      ])));
+  Widget _waiting({bool dock = false}) {
+    final body = Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      const SizedBox(width: 18, height: 18,
+          child: CircularProgressIndicator(strokeWidth: 2.2, color: shineGold)),
+      const SizedBox(width: 12),
+      Flexible(child: Text(widget.isBotMatch ? 'Komputer sedang menentukan aksi…'
+          : 'Menunggu giliran atau sinkronisasi lawan…',
+          style: const TextStyle(color: shineMuted, fontSize: 13))),
+    ]);
+    if (dock) return Center(child: Padding(padding: const EdgeInsets.all(24), child: body));
+    return Container(
+        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
+        decoration: BoxDecoration(color: const Color(0xE60E0C16),
+            border: Border(top: BorderSide(color: _accent.withValues(alpha: .4)))),
+        child: SafeArea(top: false, child: body));
+  }
+
+  /// Panel kontrol di sisi kanan untuk layar lebar (desktop / ponsel landscape).
+  Widget _dock(bool canPlay) {
+    final over = widget.state['winner'] != null;
+    final Widget content;
+    if (over) {
+      content = const Center(child: Padding(padding: EdgeInsets.all(24),
+          child: Text('Pertandingan selesai.', style: TextStyle(color: shineMuted))));
+    } else if (!widget.canAct) {
+      content = _waiting(dock: true);
+    } else {
+      content = Center(child: SingleChildScrollView(
+          child: _controls(canPlay, dock: true)));
+    }
+    return Container(
+      width: 400,
+      decoration: BoxDecoration(
+        gradient: const LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+            colors: [Color(0xE61A1727), Color(0xF20E0C16)]),
+        border: Border(left: BorderSide(color: _accent.withValues(alpha: .45))),
+        boxShadow: [BoxShadow(color: _accent.withValues(alpha: .18),
+            blurRadius: 30, offset: const Offset(-6, 0))],
+      ),
+      child: SafeArea(left: false, child: content),
+    );
+  }
 
   Widget _resultOverlay(int w) {
     final won = w == widget.viewerSide;
@@ -1814,7 +1909,8 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
             Positioned.fill(child: CustomPaint(painter: _RaysPainter(_amb, color, !bad))),
             Center(child: Transform.scale(scale: .8 + .2 * v, child: child)),
           ])),
-      child: Padding(padding: const EdgeInsets.all(28), child: Column(
+      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 440),
+          child: Padding(padding: const EdgeInsets.all(28), child: Column(
           mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Icon(bad ? Icons.heart_broken : Icons.emoji_events, color: color, size: 72, shadows: [
           Shadow(color: color, blurRadius: 30)]),
@@ -1829,6 +1925,9 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
         const SizedBox(height: 6),
         Text(sub, textAlign: TextAlign.center,
             style: const TextStyle(color: shineMuted, fontSize: 13)),
+        const SizedBox(height: 12),
+        Center(child: StatPill('Berakhir di giliran $turn',
+            icon: Icons.timelapse, color: color)),
         const SizedBox(height: 26),
         if (widget.onReplay != null) ...[
           ShineButton(icon: Icons.replay, label: 'MAIN LAGI', onPressed: widget.onReplay),
@@ -1836,7 +1935,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
         ],
         ShineButton(primary: widget.onReplay == null, icon: Icons.home_outlined,
             label: 'KEMBALI KE MENU', onPressed: () => Navigator.of(context).pop()),
-      ])),
+      ]))),
     ));
   }
 
@@ -1844,23 +1943,34 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   Widget build(BuildContext context) {
     final winner = widget.state['winner'];
     final canPlay = widget.canAct && winner == null && !busy;
-    final Widget bottom;
-    if (winner != null) {
-      bottom = const SizedBox(height: 8);
-    } else if (!widget.canAct) {
-      bottom = _waiting();
-    } else {
-      bottom = SafeArea(top: false, child: _controls(canPlay));
-    }
     return ShineScaffold(
       accent: _accent,
       body: Stack(children: [
         Positioned.fill(child: CustomPaint(painter: _ScenePainter(_amb, _accent))),
-        SafeArea(bottom: false, child: Column(children: [
-          _hud(),
-          Expanded(child: LayoutBuilder(builder: (context, box) => _stage(box.biggest))),
-          if (winner == null) bottom else const SizedBox(height: 8),
-        ])),
+        SafeArea(bottom: false, child: LayoutBuilder(builder: (context, box) {
+          _wide = shineIsWide(box.biggest);
+          _short = box.maxHeight < 520;
+          final stage = Column(children: [
+            _topBar(),
+            _hud(),
+            Expanded(child: LayoutBuilder(builder: (context, b) => _stage(b.biggest))),
+          ]);
+          if (_wide) {
+            return Row(children: [
+              Expanded(child: stage),
+              _dock(canPlay),
+            ]);
+          }
+          final Widget bottom;
+          if (winner != null) {
+            bottom = const SizedBox(height: 8);
+          } else if (!widget.canAct) {
+            bottom = _waiting();
+          } else {
+            bottom = SafeArea(top: false, child: _controls(canPlay));
+          }
+          return Column(children: [Expanded(child: stage), bottom]);
+        })),
         if (winner != null && _resultReady) _resultOverlay((winner as num).toInt()),
       ]),
     );

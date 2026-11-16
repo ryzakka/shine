@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import '../data/characters.dart';
 
@@ -55,6 +56,32 @@ String skillText(CharacterSpec s) {
   return s.skill;
 }
 
+// ───────────── Responsif & transisi ─────────────
+
+/// Tata letak lebar (desktop, tablet, ponsel landscape) memakai dua kolom.
+bool shineIsWide(Size s) =>
+    s.width >= 900 || (s.width >= 640 && s.width > s.height * 1.25);
+
+/// Transisi halaman seragam: memudar sambil naik sedikit.
+Route<T> shineRoute<T>(Widget page) => PageRouteBuilder<T>(
+  transitionDuration: const Duration(milliseconds: 420),
+  reverseTransitionDuration: const Duration(milliseconds: 260),
+  pageBuilder: (_, __, ___) => page,
+  transitionsBuilder: (context, anim, secondary, child) {
+    final curved = CurvedAnimation(parent: anim, curve: Curves.easeOutCubic);
+    return FadeTransition(
+      opacity: curved,
+      child: SlideTransition(
+        position: Tween<Offset>(begin: const Offset(0, .04), end: Offset.zero)
+            .animate(curved),
+        child: child,
+      ),
+    );
+  },
+);
+
+double _fr(double v) => v - v.floorToDouble();
+
 // ───────────── Layout ─────────────
 
 /// Latar dramatis: gradasi gelap dengan cahaya aksen di bagian atas.
@@ -86,24 +113,170 @@ class ShineBackdrop extends StatelessWidget {
             ),
           ),
         ),
+        Positioned(
+          bottom: -200, left: -120, right: -120, height: 420,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(colors: [
+                shineViolet.withValues(alpha: .10),
+                Colors.transparent,
+              ]),
+            ),
+          ),
+        ),
       ]),
     ),
   );
 }
 
 /// Scaffold transparan di atas [ShineBackdrop] agar AppBar menyatu dengan latar.
+/// [embers] menambahkan percikan cahaya yang naik perlahan (beranda & menu).
 class ShineScaffold extends StatelessWidget {
   const ShineScaffold({super.key, required this.body, this.appBar,
-    this.accent = shineGold});
+    this.accent = shineGold, this.embers = false});
   final Widget body;
   final PreferredSizeWidget? appBar;
   final Color accent;
+  final bool embers;
 
   @override
   Widget build(BuildContext context) => Stack(children: [
     Positioned.fill(child: ShineBackdrop(accent: accent)),
+    if (embers) const Positioned.fill(child: IgnorePointer(child: ShineEmbers())),
     Scaffold(backgroundColor: Colors.transparent, appBar: appBar, body: body),
   ]);
+}
+
+/// Percikan emas yang naik perlahan. Berhenti bila animasi dimatikan sistem.
+class ShineEmbers extends StatefulWidget {
+  const ShineEmbers({super.key, this.color = shineGold, this.count = 34});
+  final Color color;
+  final int count;
+  @override
+  State<ShineEmbers> createState() => _ShineEmbersState();
+}
+
+class _ShineEmbersState extends State<ShineEmbers>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c =
+      AnimationController(vsync: this, duration: const Duration(seconds: 24));
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduce) {
+      _c.stop();
+      _started = false;
+    } else if (!_started) {
+      _c.repeat();
+      _started = true;
+    }
+  }
+
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => RepaintBoundary(
+    child: CustomPaint(
+      size: Size.infinite,
+      painter: _EmberPainter(_c, widget.color, widget.count),
+    ),
+  );
+}
+
+class _EmberPainter extends CustomPainter {
+  _EmberPainter(this.t, this.color, this.count) : super(repaint: t);
+  final Animation<double> t;
+  final Color color;
+  final int count;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint();
+    for (var i = 0; i < count; i++) {
+      final speed = 1 + (i % 4);
+      final prog = (_fr(i * .7549) + t.value * speed) % 1.0;
+      final x = _fr(i * .6180339) * size.width +
+          math.sin(t.value * math.pi * 2 * speed + i) * 14;
+      final y = size.height * (1 - prog);
+      final r = .8 + 1.8 * _fr(i * .37);
+      final a = math.sin(prog * math.pi) * (.16 + .34 * _fr(i * .91));
+      paint.color = color.withValues(alpha: a * .22);
+      canvas.drawCircle(Offset(x, y), r * 3.2, paint);
+      paint.color = color.withValues(alpha: a);
+      canvas.drawCircle(Offset(x, y), r, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _EmberPainter old) =>
+      old.color != color || old.count != count;
+}
+
+/// Logo SHINE dengan kilau emas yang menyapu huruf secara berkala.
+class ShineWordmark extends StatefulWidget {
+  const ShineWordmark({super.key, this.size = 58});
+  final double size;
+  @override
+  State<ShineWordmark> createState() => _ShineWordmarkState();
+}
+
+class _ShineWordmarkState extends State<ShineWordmark>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 5200));
+  bool _started = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduce = MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (reduce) {
+      _c.stop();
+      _c.value = .45;
+      _started = false;
+    } else if (!_started) {
+      _c.repeat();
+      _started = true;
+    }
+  }
+
+  @override
+  void dispose() { _c.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) {
+    final spacing = widget.size * .2;
+    return AnimatedBuilder(
+      animation: _c,
+      builder: (context, _) {
+        final p = Curves.easeInOut.transform(_c.value);
+        return Padding(
+          padding: EdgeInsets.only(left: spacing),
+          child: ShaderMask(
+            blendMode: BlendMode.srcIn,
+            shaderCallback: (r) => LinearGradient(
+              begin: Alignment(-3.2 + 5.4 * p, -.4),
+              end: Alignment(-1.2 + 5.4 * p, .4),
+              colors: const [shineGold, shineGoldLight, Colors.white,
+                shineGoldLight, shineGold],
+              stops: const [0, .3, .5, .7, 1],
+            ).createShader(r),
+            child: Text('SHINE', style: TextStyle(
+              fontSize: widget.size, fontWeight: FontWeight.w900,
+              letterSpacing: spacing, height: 1, color: Colors.white,
+              shadows: [Shadow(
+                  color: shineGold.withValues(alpha: .6),
+                  blurRadius: widget.size * .5)],
+            )),
+          ),
+        );
+      },
+    );
+  }
 }
 
 /// Muncul perlahan dari bawah; [index] memberi jeda antar-bagian.

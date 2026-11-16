@@ -1,3 +1,5 @@
+# SHINE v0.4 (redesain UI/UX — lihat `PANDUAN_UI_V04.md`)
+
 # SHINE v0.3
 
 **Pembaruan lobi online, timer giliran, dan kontrol akhir pertandingan.** Baca `PANDUAN_UPDATE_V03.md` untuk migrasi Supabase yang aman dan langkah deploy.
@@ -86,8 +88,11 @@ shine/
 ├── lib/game/bot_player.dart
 ├── lib/game/saved_game.dart
 ├── lib/online/shine_service.dart
-├── lib/ui/home_page.dart
-├── lib/ui/arena_page.dart
+├── lib/ui/landing_page.dart       (beranda awal)
+├── lib/ui/menu_page.dart          (menu pilihan mode)
+├── lib/ui/squad_picker.dart       (pemilih tim / koleksi tokoh)
+├── lib/ui/arena_page.dart         (in-game & lobi)
+├── lib/ui/shine_ui.dart           (design system)
 ├── assets/portraits/              (26 kartu)
 ├── android/app/src/main/          (manifest & MainActivity)
 ├── supabase/migrations/001_shine_mvp.sql
