@@ -1,0 +1,36 @@
+/// Katalog prototipe: statistik dan efek skill BELUM final (untuk playtest).
+class CharacterSpec {
+  const CharacterSpec({required this.id, required this.name, required this.hp, required this.attack, required this.skill, required this.kind, required this.cost, required this.cooldown, required this.value, required this.aux});
+  final String id, name, skill, kind;
+  final int hp, attack, cost, cooldown, value, aux;
+  String get asset => 'assets/portraits/$id.webp';
+}
+const List<CharacterSpec> characters = [
+  CharacterSpec(id: 'alejandronavarro', name: 'Alejandro Navarro', hp: 500, attack: 27, skill: 'Serangan Beruntun', kind: 'damage', cost: 2, cooldown: 2, value: 15, aux: 0),
+  CharacterSpec(id: 'arystanbeknurlanuly', name: 'Arystanbek Nurlanuly', hp: 580, attack: 24, skill: 'Benteng Kokoh', kind: 'shield', cost: 2, cooldown: 3, value: 2, aux: 0),
+  CharacterSpec(id: 'baekseoyeon', name: 'Baek Seo-yeon', hp: 420, attack: 25, skill: 'Gangguan Ritme', kind: 'drain', cost: 3, cooldown: 4, value: 1, aux: 0),
+  CharacterSpec(id: 'callummacgregor', name: 'Callum MacGregor', hp: 480, attack: 29, skill: 'Pukulan Penentu', kind: 'damage', cost: 2, cooldown: 2, value: 25, aux: 0),
+  CharacterSpec(id: 'chahyunjae', name: 'Cha Hyun-jae', hp: 460, attack: 31, skill: 'Gerak Kilat', kind: 'pierce', cost: 2, cooldown: 3, value: 1, aux: 0),
+  CharacterSpec(id: 'chaminhyuk', name: 'Cha Min-hyuk', hp: 520, attack: 30, skill: 'Momentum', kind: 'damage', cost: 2, cooldown: 2, value: 15, aux: 0),
+  CharacterSpec(id: 'choinari', name: 'Choi Na-ri', hp: 400, attack: 24, skill: 'Semangat Baru', kind: 'heal_all', cost: 3, cooldown: 4, value: 15, aux: 0),
+  CharacterSpec(id: 'fujiwaraaoi', name: 'Fujiwara Aoi', hp: 420, attack: 27, skill: 'Pengalih Perhatian', kind: 'shield', cost: 2, cooldown: 3, value: 1, aux: 0),
+  CharacterSpec(id: 'hanseoah', name: 'Han Seo-ah', hp: 440, attack: 20, skill: 'Dukungan', kind: 'heal', cost: 2, cooldown: 3, value: 25, aux: 0),
+  CharacterSpec(id: 'hanseoyul', name: 'Han Seo-yul', hp: 420, attack: 26, skill: 'Perhitungan Cermat', kind: 'reserve', cost: 1, cooldown: 3, value: 1, aux: 0),
+  CharacterSpec(id: 'junghyunwoo', name: 'Jung Hyun-woo', hp: 540, attack: 26, skill: 'Pertahanan Balik', kind: 'shield', cost: 2, cooldown: 3, value: 1, aux: 0),
+  CharacterSpec(id: 'kangjiwoo', name: 'Kang Ji-woo', hp: 460, attack: 29, skill: 'Langkah Gesit', kind: 'shield', cost: 2, cooldown: 3, value: 2, aux: 0),
+  CharacterSpec(id: 'kavehshirazi', name: 'Kaveh Shirazi', hp: 500, attack: 28, skill: 'Adaptasi', kind: 'damage', cost: 2, cooldown: 2, value: 10, aux: 0),
+  CharacterSpec(id: 'kimdasol', name: 'Kim Da-sol', hp: 440, attack: 25, skill: 'Jebakan Taktis', kind: 'shield', cost: 2, cooldown: 2, value: 1, aux: 0),
+  CharacterSpec(id: 'kurokawaren', name: 'Kurokawa Ren', hp: 460, attack: 32, skill: 'Serangan Nekat', kind: 'recoil', cost: 2, cooldown: 3, value: 40, aux: 10),
+  CharacterSpec(id: 'kwontaehyuk', name: 'Kwon Tae-hyuk', hp: 560, attack: 27, skill: 'Tekad Baja', kind: 'shield', cost: 2, cooldown: 3, value: 1, aux: 0),
+  CharacterSpec(id: 'laylaalzahra', name: 'Layla Al-Zahra', hp: 420, attack: 24, skill: 'Perlindungan Rekan', kind: 'shield', cost: 2, cooldown: 3, value: 2, aux: 0),
+  CharacterSpec(id: 'leejunseo', name: 'Lee Jun-seo', hp: 400, attack: 23, skill: 'Analisis', kind: 'pierce', cost: 1, cooldown: 2, value: 1, aux: 0),
+  CharacterSpec(id: 'linzixuan', name: 'Lin Zixuan', hp: 480, attack: 28, skill: 'Titik Lemah', kind: 'pierce', cost: 3, cooldown: 3, value: 2, aux: 0),
+  CharacterSpec(id: 'namseojun', name: 'Nam Seo-jun', hp: 500, attack: 26, skill: 'Formasi Bertahan', kind: 'shield', cost: 2, cooldown: 3, value: 2, aux: 0),
+  CharacterSpec(id: 'ragnarsigurdsson', name: 'Ragnar Sigurdsson', hp: 600, attack: 28, skill: 'Daya Gempur', kind: 'conditional_damage', cost: 3, cooldown: 3, value: 30, aux: 3),
+  CharacterSpec(id: 'suqinghuan', name: 'Su Qinghuan', hp: 400, attack: 26, skill: 'Kendali Tempo', kind: 'drain', cost: 2, cooldown: 4, value: 1, aux: 0),
+  CharacterSpec(id: 'udomsakchanthavong', name: 'Udomsak Chanthavong', hp: 560, attack: 29, skill: 'Tekanan Bertubi', kind: 'damage', cost: 2, cooldown: 3, value: 20, aux: 0),
+  CharacterSpec(id: 'xuwenjing', name: 'Xu Wenjing', hp: 400, attack: 22, skill: 'Pemulihan Tenang', kind: 'heal', cost: 2, cooldown: 3, value: 30, aux: 0),
+  CharacterSpec(id: 'zaydalharith', name: 'Zayd al-Harith', hp: 520, attack: 27, skill: 'Keseimbangan', kind: 'hybrid', cost: 2, cooldown: 2, value: 10, aux: 1),
+  CharacterSpec(id: 'zhangmingzhe', name: 'Zhang Mingzhe', hp: 440, attack: 30, skill: 'Strategi Tersembunyi', kind: 'conditional_damage', cost: 2, cooldown: 2, value: 20, aux: 0),
+];
+CharacterSpec characterById(String id) => characters.firstWhere((c) => c.id == id);
