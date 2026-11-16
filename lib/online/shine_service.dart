@@ -36,7 +36,7 @@ class ShineService {
   Future<List<Map<String, dynamic>>> myRooms() async {
     await ensureSignedIn();
     final result = await client.from('shine_rooms')
-      .select('id,code,status,created_at')
+      .select('id,code,status,created_at,guest_ready,turn_seconds')
       .inFilter('status', ['waiting','playing'])
       .order('created_at', ascending: false)
       .limit(15);
@@ -47,6 +47,36 @@ class ShineService {
       .from('shine_rooms')
       .stream(primaryKey: ['id'])
       .eq('id', id);
+
+  Future<void> setReady(String roomId, bool ready) async {
+    await client.rpc('shine_set_ready', params: {
+      'p_room_id': roomId, 'p_ready': ready,
+    });
+  }
+
+  Future<void> setTimer(String roomId, int seconds) async {
+    await client.rpc('shine_set_timer', params: {
+      'p_room_id': roomId, 'p_seconds': seconds,
+    });
+  }
+
+  Future<void> startRoom(String roomId) async {
+    await client.rpc('shine_start_room', params: {'p_room_id': roomId});
+  }
+
+  Future<void> leaveLobby(String roomId) async {
+    await client.rpc('shine_leave_lobby', params: {'p_room_id': roomId});
+  }
+
+  Future<void> endRoom(String roomId, {required bool disband}) async {
+    await client.rpc('shine_end_room', params: {
+      'p_room_id': roomId, 'p_mode': disband ? 'disband' : 'surrender',
+    });
+  }
+
+  Future<void> expireTurn(String roomId) async {
+    await client.rpc('shine_expire_turn', params: {'p_room_id': roomId});
+  }
 
   Future<void> submit({
     required String id,

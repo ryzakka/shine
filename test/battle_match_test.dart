@@ -71,6 +71,22 @@ void main() {
       battle.act(swapTo:0); // A T7 -> cd0
       expect(battle.teams[0].fighters[0].cooldown,0);
     });
+    test('waktu giliran lokal berakhir: skip tanpa serangan', () {
+      final battle = testBattle();
+      final oldHp = battle.teams[1].current.hp;
+      battle.turnDeadlineUtc = DateTime.now().toUtc().subtract(const Duration(seconds: 1));
+      battle.skipTimedOutTurn();
+      expect(battle.turn, 2);
+      expect(battle.teams[1].current.hp, oldHp);
+      expect(battle.history.last, contains('Waktu Tim A habis'));
+      expect(battle.turnDeadlineUtc.isAfter(DateTime.now().toUtc()), true);
+    });
+    test('aksi terlambat ditolak dan giliran maju', () {
+      final battle = testBattle();
+      battle.turnDeadlineUtc = DateTime.now().toUtc().subtract(const Duration(seconds: 1));
+      expect(() => battle.act(attack: 1), throwsStateError);
+      expect(battle.turn, 2);
+    });
     test('pergantian berdiri sendiri dan tidak menambah PA cadangan', () {
       final battle=testBattle();
       expect(()=>battle.act(swapTo:1,attack:1),throwsStateError);

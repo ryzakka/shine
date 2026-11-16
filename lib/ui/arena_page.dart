@@ -3,6 +3,7 @@ import 'dart:async';
 import '../game/bot_player.dart';
 import '../game/saved_game.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/characters.dart';
 import '../domain/battle_match.dart';
@@ -70,6 +71,20 @@ class _LocalArenaPageState extends State<LocalArenaPage> {
     }
   }
 
+  Future<void> _stopLocal() async {
+    final agreed = await showDialog<bool>(context: context,
+      builder: (ctx) => AlertDialog(title: const Text('Hentikan pertandingan?'),
+        content: const Text('Pertandingan lokal ini akan dihapus dan tidak dapat dilanjutkan.'),
+        actions: [
+          TextButton(onPressed:() => Navigator.pop(ctx,false),child:const Text('Batal')),
+          FilledButton(onPressed:() => Navigator.pop(ctx,true),child:const Text('Hentikan')),
+        ]));
+    if (agreed != true) return;
+    _botTimer?.cancel();
+    await LocalGameStorage.remove();
+    if (mounted) Navigator.pop(context);
+  }
+
   void _playAgain() {
     final a = widget.battle.teams[0].fighters.map((f) => f.spec.id).toList();
     final b = widget.battle.teams[1].fighters.map((f) => f.spec.id).toList();
@@ -99,6 +114,10 @@ class _LocalArenaPageState extends State<LocalArenaPage> {
       isBotMatch: widget.againstBot,
       history: widget.battle.history,
       onReplay: _playAgain,
+      turnDeadline: widget.battle.turnDeadlineUtc,
+      onTimeout: () async => widget.battle.skipTimedOutTurn(),
+      onExit: () => Navigator.pop(context),
+      onStopLocal: _stopLocal,
       canAct: !widget.againstBot || widget.battle.acting == 0,
       onAction: ({int attack = 0, int defend = 0,
           int reserve = 0, bool useSkill = false, int? swapTo}) async {
@@ -121,56 +140,220 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
   late final ShineService service = ShineService(Supabase.instance.client);
   late final Stream<List<Map<String, dynamic>>> roomStream = service.watchRoom(widget.roomId);
   bool submitting = false;
+  bool expiring = false;
+
+  void _notice(Object error) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Tindakan gagal: $error')));
+  }
+
+  Future<bool> _perform(Future<void> Function() action) async {
+    if (submitting) return false;
+    setState(() => submitting = true);
+    try {
+      await action();
+      return true;
+    } catch (error) {
+      _notice(error);
+      return false;
+    } finally {
+      if (mounted) setState(() => submitting = false);
+    }
+  }
+
+  Future<bool> _ask(String title, String body, String confirm) async {
+    if (!mounted) return false;
+    return await showDialog<bool>(context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title), content: Text(body),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(confirm)),
+        ],
+      )) ?? false;
+  }
+
+  Future<void> _endRoom({required bool disband}) async {
+    final agreed = await _ask(disband ? 'Bubarkan ruang?' : 'Menyerah?',
+      disband
+        ? 'Semua pemain akan keluar dari pertandingan. Tidak ada pemenang.'
+        : 'Pertandingan berakhir dan tim lawan dinyatakan menang.',
+      disband ? 'Bubarkan' : 'Menyerah');
+    if (agreed) await _perform(() => service.endRoom(widget.roomId, disband: disband));
+  }
+
+  Future<void> _expire() async {
+    if (expiring) return;
+    expiring = true;
+    try { await service.expireTurn(widget.roomId); }
+    catch (error) { _notice(error); }
+    finally { expiring = false; }
+  }
+
+  Widget _lobby(Map<String,dynamic> room) {
+    final uid = Supabase.instance.client.auth.currentUser?.id;
+    final isHost = uid == room['host_id'];
+    final joined = room['guest_id'] != null;
+    final ready = room['guest_ready'] == true;
+    final seconds = (room['turn_seconds'] as num?)?.toInt() ?? 30;
+    final hostCards = (room['host_cards'] as List? ?? []).map((e) => e.toString()).toList();
+    final guestCards = (room['guest_cards'] as List? ?? []).map((e) => e.toString()).toList();
+    return Scaffold(
+      appBar: AppBar(title: const Text('LOBI SHINE'), actions: [
+        IconButton(tooltip:'Beranda (ruang tetap ada)',
+          onPressed: () => Navigator.pop(context), icon: const Icon(Icons.home_outlined)),
+      ]),
+      body: SafeArea(child: ListView(padding: const EdgeInsets.all(18), children: [
+        Card(child: Padding(padding: const EdgeInsets.all(22), child: Column(children: [
+          const Icon(Icons.groups_2_outlined, color: shineGold, size: 52),
+          const SizedBox(height: 12),
+          const Text('KODE UNDANGAN', style: TextStyle(letterSpacing: 2, fontSize: 11)),
+          const SizedBox(height: 8),
+          SelectableText(widget.roomCode,
+            style: const TextStyle(color:shineGold, fontSize: 36, fontWeight:FontWeight.w900, letterSpacing:6)),
+          TextButton.icon(onPressed: () async {
+            await Clipboard.setData(ClipboardData(text: widget.roomCode));
+            if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Kode lobi disalin.')));
+          }, icon: const Icon(Icons.copy), label: const Text('Salin kode')),
+        ]))),
+        const SizedBox(height: 16),
+        _lobbyPlayer('TIM A • HOST', hostCards, joined: true, ready: true),
+        const SizedBox(height: 12),
+        _lobbyPlayer('TIM B • PEMAIN KEDUA', guestCards, joined: joined, ready: ready),
+        const SizedBox(height: 20),
+        Text('TIMER PER GILIRAN  •  $seconds DETIK',
+          style: const TextStyle(color:shineGold,fontWeight:FontWeight.w800,fontSize:12)),
+        const SizedBox(height: 12),
+        Wrap(spacing:8,runSpacing:8,children: [
+          for (final time in const [20,30,45,60])
+            ChoiceChip(label: Text('$time detik'), selected: seconds == time,
+              onSelected: isHost && !submitting
+                ? (_) => _perform(() => service.setTimer(widget.roomId,time))
+                : null),
+        ]),
+        const SizedBox(height: 22),
+        if (isHost) ...[
+          FilledButton.icon(onPressed: joined && ready && !submitting
+              ? () => _perform(() => service.startRoom(widget.roomId)) : null,
+            icon: const Icon(Icons.play_arrow), label: const Text('MULAI PERTANDINGAN')),
+          const SizedBox(height: 10),
+          Text(joined
+            ? (ready ? 'Pemain kedua siap. Pertandingan dapat dimulai.'
+                     : 'Menunggu pemain kedua menekan tombol Siap.')
+            : 'Menunggu pemain kedua masuk menggunakan kode di atas.',
+            textAlign: TextAlign.center, style: const TextStyle(color:shineMuted,fontSize:12)),
+        ] else ...[
+          FilledButton.icon(onPressed: submitting
+            ? null : () => _perform(() => service.setReady(widget.roomId,!ready)),
+            icon: Icon(ready ? Icons.check_circle : Icons.hourglass_bottom),
+            label: Text(ready ? 'SUDAH SIAP • BATALKAN' : 'SAYA SIAP')),
+          const SizedBox(height: 10),
+          const Text('Setelah kedua pemain siap, host akan memulai pertandingan.',
+            textAlign: TextAlign.center, style: TextStyle(color:shineMuted,fontSize:12)),
+        ],
+        const SizedBox(height: 28),
+        OutlinedButton.icon(
+          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.home_outlined),
+          label: const Text('Kembali ke beranda (lobi tetap ada)')),
+        const SizedBox(height: 8),
+        TextButton.icon(onPressed: submitting ? null : () async {
+          if (isHost) {
+            await _endRoom(disband: true);
+          } else if (await _ask('Keluar dari lobi?',
+              'Slot tim B akan dibuka kembali untuk pemain lain.', 'Keluar')) {
+            final success = await _perform(() => service.leaveLobby(widget.roomId));
+            if (success && mounted) Navigator.pop(context);
+          }
+        }, icon: Icon(isHost ? Icons.delete_outline : Icons.exit_to_app),
+          label: Text(isHost ? 'Bubarkan lobi' : 'Keluar dari lobi')),
+      ])),
+    );
+  }
+
+  Widget _lobbyPlayer(String label, List<String> ids,
+      {required bool joined, required bool ready}) => Card(
+    child: Padding(padding: const EdgeInsets.all(12), child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(child: Text(label,
+            style: const TextStyle(color:shineGold,fontWeight:FontWeight.w800,fontSize:12))),
+          Text(!joined ? 'Belum bergabung' : (ready ? 'Siap' : 'Belum siap'),
+            style: TextStyle(color:ready ? Colors.greenAccent : shineMuted,fontSize:11)),
+        ]),
+        const SizedBox(height: 10),
+        if (ids.isEmpty) const Text('Menunggu pilihan tiga tokoh...',
+          style: TextStyle(color:shineMuted,fontSize:12)),
+        if (ids.isNotEmpty) SizedBox(height: 105, child: Row(children: [
+          for (final id in ids)
+            Expanded(child: Padding(padding:const EdgeInsets.symmetric(horizontal:3),
+              child: Column(children: [
+                Expanded(child: Image.asset('assets/portraits/$id.webp',fit:BoxFit.contain)),
+                const SizedBox(height:4),
+                Text(characterById(id).name,maxLines:1,overflow:TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize:9)),
+              ]))),
+        ])),
+      ])),
+  );
+
   @override
   Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
     stream: roomStream,
     builder: (context, snapshot) {
       if (snapshot.hasError) return Scaffold(appBar: AppBar(title: const Text('Shine • Online')),
         body: Center(child: Text('Gagal memuat ruang: ${snapshot.error}')));
-      if (!snapshot.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-      if (snapshot.data!.isEmpty) return const Scaffold(body: Center(child: Text('Ruang tidak ditemukan atau akses ditolak.')));
+      if (!snapshot.hasData) return const Scaffold(
+        body: Center(child: CircularProgressIndicator()));
+      if (snapshot.data!.isEmpty) return Scaffold(
+        appBar: AppBar(title: const Text('Shine • Online')),
+        body: Center(child: Column(mainAxisSize:MainAxisSize.min,children:[
+          const Text('Ruang tidak tersedia atau kamu sudah keluar.'),
+          TextButton(onPressed:()=>Navigator.pop(context),child:const Text('Ke beranda')),
+        ])));
       final room = snapshot.data!.first;
-      if (room['status'] == 'waiting') {
-        return Scaffold(appBar: AppBar(title: const Text('Menunggu lawan')),
-          body: Center(child: Padding(padding: const EdgeInsets.all(24), child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.groups, color: shineGold, size: 62),
-              const SizedBox(height: 18),
-              const Text('Bagikan kode ini ke pemain kedua', textAlign: TextAlign.center),
-              const SizedBox(height: 10),
-              SelectableText(widget.roomCode, style: const TextStyle(
-                fontSize: 38, fontWeight: FontWeight.bold, letterSpacing: 8, color: shineGold)),
-              const SizedBox(height: 10),
-              const Text('Pertandingan dimulai otomatis ketika pemain lain bergabung.', textAlign: TextAlign.center),
-            ],
-          ))),
-        );
-      }
-      final state = Map<String, dynamic>.from(room['state'] as Map);
+      final status = room['status'] as String? ?? '';
+      if (status == 'waiting') return _lobby(room);
+      if (status == 'closed') return Scaffold(
+        appBar: AppBar(title:const Text('RUANG DIBUBARKAN')),
+        body: Center(child: Column(mainAxisSize:MainAxisSize.min,children: [
+          const Icon(Icons.meeting_room_outlined,color:shineGold,size:65),
+          const SizedBox(height:12),
+          const Text('Ruang telah dibubarkan oleh host.'),
+          const SizedBox(height:18),
+          FilledButton(onPressed:()=>Navigator.pop(context),
+            child:const Text('Kembali ke beranda')),
+        ])));
+      final rawState = room['state'];
+      if (rawState is! Map) return const Scaffold(
+        body:Center(child:Text('Menunggu status pertandingan...')));
+      final state = Map<String, dynamic>.from(rawState);
       final acting = ((state['turn'] as num).toInt()-1)%2;
       final uid = Supabase.instance.client.auth.currentUser?.id;
-      final canAct = acting == 0 ? uid == room['host_id'] : uid == room['guest_id'];
+      final isHost = uid == room['host_id'];
+      final canAct = acting == 0 ? isHost : uid == room['guest_id'];
+      final deadlineString = room['turn_deadline'] as String?;
       return MatchArena(
         title: 'Online • ${widget.roomCode}', state: state,
-        viewerSide: uid == room['host_id'] ? 0 : 1,
-        canAct: canAct && !submitting,
+        viewerSide: isHost ? 0 : 1,
+        canAct: canAct && !submitting && status == 'playing',
+        turnDeadline: deadlineString == null ? null : DateTime.tryParse(deadlineString)?.toUtc(),
+        onTimeout: status == 'playing' ? _expire : null,
+        onExit: () => Navigator.pop(context),
+        onSurrender: status == 'playing' && !submitting
+          ? () => _endRoom(disband:false) : null,
+        onDisband: status == 'playing' && isHost && !submitting
+          ? () => _endRoom(disband:true) : null,
         onAction: ({int attack = 0, int defend = 0,
             int reserve = 0, bool useSkill = false, int? swapTo}) async {
-          setState(() => submitting = true);
-          try {
-            await service.submit(
-              id: widget.roomId,
-              revision: (room['revision'] as num).toInt(),
-              attack: attack, defend: defend, reserve: reserve,
-              useSkill: useSkill, swapTo: swapTo,
-            );
-          } catch (error) {
-            if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Aksi ditolak: $error')));
-          } finally {
-            if (mounted) setState(() => submitting = false);
-          }
+          await _perform(() => service.submit(
+            id: widget.roomId,
+            revision: (room['revision'] as num).toInt(),
+            attack: attack, defend: defend, reserve: reserve,
+            useSkill: useSkill, swapTo: swapTo,
+          ));
         },
       );
     },
@@ -181,11 +364,19 @@ class MatchArena extends StatefulWidget {
   const MatchArena({super.key, required this.state, required this.title,
     required this.canAct, required this.onAction,
     required this.viewerSide, this.isBotMatch = false,
-    this.history = const [], this.onReplay});
+    this.history = const [], this.onReplay,
+    this.turnDeadline, this.onTimeout, this.onExit,
+    this.onSurrender, this.onDisband, this.onStopLocal});
   final int viewerSide;
   final bool isBotMatch;
   final List<String> history;
   final VoidCallback? onReplay;
+  final DateTime? turnDeadline;
+  final Future<void> Function()? onTimeout;
+  final VoidCallback? onExit;
+  final Future<void> Function()? onSurrender;
+  final Future<void> Function()? onDisband;
+  final Future<void> Function()? onStopLocal;
   final Map<String, dynamic> state;
   final String title;
   final bool canAct;
@@ -197,6 +388,11 @@ class MatchArena extends StatefulWidget {
 class _MatchArenaState extends State<MatchArena> {
   int attack = 0, defend = 0, reserve = 0;
   bool skill = false, busy = false;
+  Timer? _countdown;
+  bool _timeoutNotified = false;
+  DateTime? _lastTimeoutAttempt;
+  int get remainingSeconds => widget.turnDeadline == null ? 0 : math.max(0,
+    (widget.turnDeadline!.difference(DateTime.now().toUtc()).inMilliseconds / 1000).ceil());
   int get turn => (widget.state['turn'] as num).toInt();
   int get activeSide => (turn-1)%2;
   List<dynamic> get teams => widget.state['teams'] as List<dynamic>;
@@ -213,11 +409,38 @@ class _MatchArenaState extends State<MatchArena> {
   }
 
   @override
-  void initState() { super.initState(); reset(); }
+  void initState() {
+    super.initState();
+    reset();
+    _countdown = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final now = DateTime.now().toUtc();
+      final retryAllowed = _lastTimeoutAttempt == null ||
+          now.difference(_lastTimeoutAttempt!) >= const Duration(seconds: 5);
+      if (widget.state['winner'] == null && widget.turnDeadline != null &&
+          remainingSeconds == 0 && widget.onTimeout != null &&
+          (!_timeoutNotified || retryAllowed)) {
+        _timeoutNotified = true;
+        _lastTimeoutAttempt = now;
+        widget.onTimeout!();
+      }
+      setState(() {});
+    });
+  }
+  @override
+  void dispose() {
+    _countdown?.cancel();
+    super.dispose();
+  }
   @override
   void didUpdateWidget(covariant MatchArena oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.state['turn']!=widget.state['turn']) reset();
+    if (oldWidget.turnDeadline != widget.turnDeadline ||
+        oldWidget.state['turn'] != widget.state['turn']) {
+      _timeoutNotified = false;
+      _lastTimeoutAttempt = null;
+    }
   }
 
   Future<void> submit({int? swapTo}) async {
@@ -275,6 +498,24 @@ class _MatchArenaState extends State<MatchArena> {
     final canPlay = widget.canAct && winner==null && !busy;
     return Scaffold(
       appBar: AppBar(title: Text(widget.title),actions: [
+        if (widget.onExit != null)
+          IconButton(tooltip:'Beranda tanpa mengakhiri pertandingan',
+            icon: const Icon(Icons.home_outlined), onPressed: widget.onExit),
+        if (widget.onSurrender != null || widget.onDisband != null || widget.onStopLocal != null)
+          PopupMenuButton<String>(tooltip: 'Opsi pertandingan',
+            onSelected: (choice) {
+              if (choice == 'surrender') widget.onSurrender?.call();
+              if (choice == 'disband') widget.onDisband?.call();
+              if (choice == 'stop') widget.onStopLocal?.call();
+            },
+            itemBuilder: (_) => [
+              if (widget.onSurrender != null)
+                const PopupMenuItem(value:'surrender', child: Text('Menyerah (lawan menang)')),
+              if (widget.onDisband != null)
+                const PopupMenuItem(value:'disband', child: Text('Bubarkan ruang (host)')),
+              if (widget.onStopLocal != null)
+                const PopupMenuItem(value:'stop', child: Text('Hentikan pertandingan lokal')),
+            ]),
         if (widget.history.isNotEmpty)
           IconButton(tooltip: 'Riwayat pertarungan', onPressed: () => showModalBottomSheet<void>(
             context: context, isScrollControlled: true,
@@ -290,10 +531,24 @@ class _MatchArenaState extends State<MatchArena> {
               ])),
             ),
           ), icon: const Icon(Icons.history)),
-        Padding(padding: const EdgeInsets.symmetric(horizontal:12),
-          child: Center(child: Text('GILIRAN $turn',style: const TextStyle(color:shineGold,fontWeight:FontWeight.bold)))),
       ]),
       body: SafeArea(child: ListView(padding: const EdgeInsets.all(14), children: [
+        Padding(padding: const EdgeInsets.only(bottom:8),
+          child: Text('GILIRAN $turn',style: const TextStyle(
+            color:shineGold,fontWeight:FontWeight.bold,letterSpacing:1.1))),
+        if (winner == null && widget.turnDeadline != null) ...[
+          Card(color: remainingSeconds <= 10 ? const Color(0xFF542B38) : null,
+            child: Padding(padding: const EdgeInsets.symmetric(vertical:12,horizontal:14),
+              child: Row(children: [
+                Icon(Icons.timer_outlined, color: remainingSeconds <= 10 ? Colors.redAccent : shineGold),
+                const SizedBox(width:9),
+                Expanded(child: Text('Timer Tim ${activeSide == 0 ? 'A' : 'B'}',
+                  style: const TextStyle(fontWeight:FontWeight.w700))),
+                Text('${remainingSeconds}s', style: TextStyle(fontSize:22,fontWeight:FontWeight.w900,
+                  color:remainingSeconds<=10?Colors.redAccent:shineGold)),
+              ]))),
+          const SizedBox(height:8),
+        ],
         _teamPanel('TIM ${widget.viewerSide==0?'B':'A'} • ${widget.isBotMatch?'KOMPUTER':'LAWAN'}',opponent, highlighted:false),
         const Padding(padding: EdgeInsets.symmetric(vertical:13), child: Row(
           children:[Expanded(child:Divider()),Padding(padding:EdgeInsets.symmetric(horizontal:12),

@@ -38,10 +38,12 @@ class LocalBattle extends ChangeNotifier {
   final List<String> history = ['Pertarungan dimulai!'];
   int turn = 1;
   int? winner;
+  DateTime turnDeadlineUtc = DateTime.now().toUtc().add(const Duration(seconds: 30));
   String log = 'Pertarungan dimulai!';
   int get acting => (turn - 1) % 2;
   Map<String, dynamic> toJson() => {
     'turn': turn, 'winner': winner, 'log': log, 'history': history,
+    'turn_deadline': turnDeadlineUtc.toIso8601String(),
     'teams': [for (final t in teams) {
       'active': t.active, 'reserve': t.reserve, 'block': t.block,
       'cards': [for (final f in t.fighters) {
@@ -63,6 +65,8 @@ class LocalBattle extends ChangeNotifier {
     final t = (state['turn'] as num).toInt();
     if (t < 1 || t > 10000) throw const FormatException('Giliran rusak');
     match.turn = t;
+    match.turnDeadlineUtc = DateTime.tryParse(state['turn_deadline'] as String? ?? '')?.toUtc()
+        ?? DateTime.now().toUtc().add(const Duration(seconds: 30));
     match.winner = (state['winner'] as num?)?.toInt();
     match.log = state['log'] as String? ?? 'Pertandingan dipulihkan';
     match.history.clear();
@@ -100,6 +104,10 @@ class LocalBattle extends ChangeNotifier {
     int? swapTo,
   }) {
     if (winner != null) throw StateError('Pertandingan sudah berakhir.');
+    if (!DateTime.now().toUtc().isBefore(turnDeadlineUtc)) {
+      skipTimedOutTurn();
+      throw StateError('Waktu habis, giliran telah dilewati.');
+    }
     final own = teams[acting];
     final enemy = teams[1 - acting];
     if (swapTo != null) {
@@ -117,6 +125,7 @@ class LocalBattle extends ChangeNotifier {
       log = 'Tim ${acting == 0 ? 'A' : 'B'} mengganti ke ${own.current.spec.name}. Giliran selesai.';
       _tickCooldowns(own);
       turn++;
+      _startNextTurn();
       history.add(log);
       notifyListeners();
       return;
@@ -200,8 +209,30 @@ class LocalBattle extends ChangeNotifier {
     if (enemy.defeated) winner = acting;
     if (own.defeated) winner = 1 - acting;
     turn++;
+    _startNextTurn();
     history.add(log);
     notifyListeners();
+  }
+
+  /// Jika timer habis: lewati satu giliran tanpa serangan.
+  /// PA dasar giliran ini hangus, PA cadangan lama tetap tersimpan.
+  void skipTimedOutTurn() {
+    if (winner != null) return;
+    if (DateTime.now().toUtc().isBefore(turnDeadlineUtc)) return;
+    final own = teams[acting];
+    final enemy = teams[1-acting];
+    log = 'Waktu Tim ${acting == 0 ? 'A' : 'B'} habis. Giliran dilewati.';
+    own.block = 0;
+    enemy.block = 0;
+    _tickCooldowns(own);
+    turn++;
+    _startNextTurn();
+    history.add(log);
+    notifyListeners();
+  }
+
+  void _startNextTurn() {
+    turnDeadlineUtc = DateTime.now().toUtc().add(const Duration(seconds: 30));
   }
 
   void _autoSubstitute(BattleTeam team) {

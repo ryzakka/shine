@@ -115,7 +115,7 @@ class _ShineHomePageState extends State<ShineHomePage> {
             onPressed: () => Navigator.pop(context, r),
             child: Padding(padding: const EdgeInsets.symmetric(vertical: 10),
               child: Row(children: [const Icon(Icons.sports_esports, color: shineGold),
-                const SizedBox(width: 12), Expanded(child: Text('${r['code']} • ${r['status'] == 'playing' ? 'Sedang bermain' : 'Menunggu'}'))])),
+                const SizedBox(width: 12), Expanded(child: Text('${r['code']} • ${r['status'] == 'playing' ? 'Sedang bermain' : 'Lobi menunggu'}'))])),
           ),
         ]));
       if (room == null || !mounted) return;
@@ -146,7 +146,11 @@ class _ShineHomePageState extends State<ShineHomePage> {
           '4. Gunakan satu skill aktif khas tokoh bila cukup PA dan cooldown siap.\n\n'
           '5. Pergantian tokoh menghabiskan giliran penuh. Cooldown tetap '
           'turun ketika tokoh berada di cadangan.\n\n'
-          '6. Tim yang kehilangan seluruh tiga tokohnya kalah.',
+          '6. Tim yang kehilangan seluruh tiga tokohnya kalah.\n\n'
+          '7. Di lobi online, pemain kedua menekan Siap, lalu host menekan Mulai. '
+          'Waktu setiap giliran ditentukan host (20–60 detik).\n\n'
+          '8. Pemain dapat menyerah; host dapat membubarkan ruang. '
+          'Tombol Beranda tidak mengakhiri pertandingan online.',
           style: TextStyle(height: 1.45, fontSize: 13)),
         const SizedBox(height: 18),
         FilledButton(onPressed: () => Navigator.pop(context),
@@ -217,9 +221,9 @@ class _ShineHomePageState extends State<ShineHomePage> {
         Text('${records['wins']} menang  •  ${records['losses']} kalah  •  ${records['games']} pertandingan vs komputer',
           style: const TextStyle(fontSize: 11, color: shineMuted)),
       ])),
-      _section('PERTARUNGAN ONLINE'),
+      _section('LOBI ONLINE • BEDA PERANGKAT'),
       OutlinedButton.icon(onPressed: busy ? null : () => online(joining:false),
-        icon: const Icon(Icons.add_circle_outline), label: const Text('Buat ruang 1 vs 1')),
+        icon: const Icon(Icons.add_circle_outline), label: const Text('Buat lobi online 1 vs 1')),
       const SizedBox(height: 10),
       TextField(controller: code, maxLength: 6, textCapitalization: TextCapitalization.characters,
         inputFormatters: [FilteringTextInputFormatter.allow(RegExp('[A-Fa-f0-9]'))],
@@ -230,12 +234,13 @@ class _ShineHomePageState extends State<ShineHomePage> {
         icon: const Icon(Icons.login), label: const Text('Gabung ruang')),
       const SizedBox(height: 8),
       TextButton.icon(onPressed: busy ? null : resumeOnline,
-        icon: const Icon(Icons.restore), label: const Text('Lanjutkan ruang online')),
+        icon: const Icon(Icons.restore), label: const Text('Lobi saya / lanjutkan pertandingan')),
       if (busy) const Padding(padding: EdgeInsets.all(16), child:
         Center(child: CircularProgressIndicator())),
       const SizedBox(height: 14),
       const Text('Mode komputer dan dua pemain dapat dimainkan tanpa internet. '
-        'Mode online memerlukan konfigurasi database Supabase oleh pemilik proyek.',
+        'Lobi online: tamu menekan Siap, host memilih timer dan memulai. '
+        'Setelah mulai, tiap giliran dibatasi waktu. Keluar ke beranda tidak membubarkan ruang.',
         style: TextStyle(fontSize: 11, height: 1.5, color: shineMuted)),
       const SizedBox(height: 16),
     ])),

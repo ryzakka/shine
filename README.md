@@ -1,3 +1,7 @@
+# SHINE v0.3
+
+**Pembaruan lobi online, timer giliran, dan kontrol akhir pertandingan.** Baca `PANDUAN_UPDATE_V03.md` untuk migrasi Supabase yang aman dan langkah deploy.
+
 # SHINE — Manhwa Card Battle (Flutter/Dart, versi dimainkan)
 
 **Nama:** Shine  
