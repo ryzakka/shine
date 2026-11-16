@@ -1,3 +1,11 @@
+# SHINE v1.4.0 — Multiplayer publik/privat dan stabilisasi arena
+
+**Mulai dari:** `CHANGELOG_V14.md` dan migrasi `supabase/migrations/004_public_rooms_player_names.sql`.
+
+Layar awal: **SHINE → MULAI → menu mode bermain**. Arena online memiliki nama pemain, daftar ruang publik, ruang privat berkode, dan tetap mempertahankan alur pilih kartu bersama/reveal dari versi sebelumnya.
+
+---
+
 # SHINE v1.3 — Arena Stabil & Multiplayer Draft Bersama
 
 **Pembaruan terbaru** mengatasi kartu/teks keluar bingkai, menambah indikator HP adaptif,

@@ -33,6 +33,44 @@ class ShineService {
     return Map<String, dynamic>.from(result as Map);
   }
 
+  /// v1.4: penamaan dan privasi diputuskan di server (tidak di query tabel langsung).
+  Future<Map<String, dynamic>> createNamedRoom({
+    required String playerName, required bool isPublic, String roomTitle = '',
+  }) async {
+    await ensureSignedIn();
+    final result = await client.rpc('shine_create_room_v14', params: {
+      'p_visibility': isPublic ? 'public' : 'private',
+      'p_room_title': roomTitle.trim(), 'p_player_name': playerName.trim(),
+    });
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<Map<String, dynamic>> joinNamedRoom({
+    required String code, required String playerName,
+  }) async {
+    await ensureSignedIn();
+    final result = await client.rpc('shine_join_named_room_v14', params: {
+      'p_code': code.trim().toUpperCase(), 'p_player_name': playerName.trim(),
+    });
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<Map<String, dynamic>> joinPublicRoom({
+    required String roomId, required String playerName,
+  }) async {
+    await ensureSignedIn();
+    final result = await client.rpc('shine_join_public_room_v14', params: {
+      'p_room_id': roomId, 'p_player_name': playerName.trim(),
+    });
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<List<Map<String, dynamic>>> publicRooms() async {
+    await ensureSignedIn();
+    final result = await client.rpc('shine_list_public_rooms');
+    return [for (final r in result as List) Map<String, dynamic>.from(r as Map)];
+  }
+
   Future<List<Map<String, dynamic>>> myRooms() async {
     await ensureSignedIn();
     final result = await client.from('shine_rooms')

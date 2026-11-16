@@ -143,6 +143,7 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
   late final Stream<List<Map<String, dynamic>>> roomStream = service.watchRoom(widget.roomId);
   bool submitting = false;
   bool expiring = false;
+  Map<String, dynamic>? _lastRoom;
 
   void _notice(Object error) {
     if (!mounted) return;
@@ -236,6 +237,8 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
       return _OnlineReveal(
         key: ValueKey('reveal-${widget.roomId}'),
         hostCards: hostCards, guestCards: guestCards, isHost: isHost,
+        hostName: room['host_name']?.toString() ?? 'Pemain A',
+        guestName: room['guest_name']?.toString() ?? 'Pemain B',
         start: DateTime.tryParse(room['reveal_started_at']?.toString() ?? '')?.toUtc()
             ?? DateTime.now().toUtc(),
         onFinished: () => service.startRoom(widget.roomId),
@@ -252,8 +255,13 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
         child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 36), children: [
           ShinePanel(glow: shineGold, borderColor: shineGold.withValues(alpha: .45),
             child: Column(children: [
-              const Text('KODE UNDANGAN', style: TextStyle(letterSpacing: 2.6,
+              Text(room['visibility'] == 'public' ? 'RUANG PUBLIK • KODE UNDANGAN'
+                  : 'RUANG PRIVAT • KODE UNDANGAN', style: const TextStyle(letterSpacing: 2.6,
                   fontSize: 10, color: shineMuted, fontWeight: FontWeight.w900)),
+              const SizedBox(height: 8),
+              Text(room['room_title']?.toString() ?? 'Arena Shine',
+                  textAlign: TextAlign.center, maxLines: 2,
+                  style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
               const SizedBox(height: 8),
               FittedBox(fit: BoxFit.scaleDown,
                   child: SelectableText(widget.roomCode, style: const TextStyle(
@@ -273,10 +281,10 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
           const SizedBox(height: 16),
           LayoutBuilder(builder: (context, bounds) {
             final sideBySide = bounds.maxWidth >= 640;
-            final a = _lobbyPlayer('TIM A • HOST', hostCards,
+            final a = _lobbyPlayer('TIM A • ${room['host_name'] ?? 'HOST'}', hostCards,
                 joined: true, ready: hostReady, showCards: isHost && hostReady,
                 accent: shineAzure);
-            final b = _lobbyPlayer('TIM B • TAMU', guestCards,
+            final b = _lobbyPlayer('TIM B • ${room['guest_name'] ?? 'MENUNGGU'}', guestCards,
                 joined: joined, ready: guestReady, showCards: !isHost && guestReady,
                 accent: shineEmber);
             return sideBySide
@@ -402,15 +410,18 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
   Widget build(BuildContext context) => StreamBuilder<List<Map<String, dynamic>>>(
     stream: roomStream,
     builder: (context, snapshot) {
-      if (snapshot.hasError) return _centerScaffold(title: 'ONLINE',
+      if (snapshot.hasError && _lastRoom == null) return _centerScaffold(title: 'ONLINE',
           icon: Icons.error_outline, message: 'Gagal memuat ruang: ${snapshot.error}',
           action: 'KE BERANDA');
-      if (!snapshot.hasData) return _centerScaffold(title: 'ONLINE',
+      if (!snapshot.hasData && _lastRoom == null) return _centerScaffold(title: 'ONLINE',
           icon: Icons.hourglass_bottom, message: 'Memuat ruang…', spinner: true);
-      if (snapshot.data!.isEmpty) return _centerScaffold(title: 'ONLINE',
+      if (snapshot.hasData && snapshot.data!.isNotEmpty) {
+        _lastRoom = snapshot.data!.first;
+      }
+      if (_lastRoom == null) return _centerScaffold(title: 'ONLINE',
           icon: Icons.meeting_room_outlined,
           message: 'Ruang tidak tersedia atau kamu sudah keluar.', action: 'KE BERANDA');
-      final room = snapshot.data!.first;
+      final room = _lastRoom!;
       final status = room['status'] as String? ?? '';
       if (status == 'waiting') return _lobby(room);
       if (status == 'closed') return _centerScaffold(title: 'RUANG DIBUBARKAN',
@@ -428,6 +439,8 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
       return MatchArena(
         title: 'Online • ${widget.roomCode}', state: state,
         viewerSide: isHost ? 0 : 1,
+        sideNames: [room['host_name']?.toString() ?? 'Pemain A',
+                    room['guest_name']?.toString() ?? 'Pemain B'],
         canAct: canAct && !submitting && status == 'playing',
         turnDeadline: deadlineString == null ? null : DateTime.tryParse(deadlineString)?.toUtc(),
         onTimeout: status == 'playing' ? _expire : null,
@@ -454,8 +467,10 @@ class _OnlineArenaPageState extends State<OnlineArenaPage> {
 /// Tidak menggunakan Navigator agar stream ruang dapat beralih langsung ke arena.
 class _OnlineReveal extends StatefulWidget {
   const _OnlineReveal({super.key, required this.hostCards, required this.guestCards,
-    required this.isHost, required this.start, required this.onFinished});
+    required this.isHost, required this.start, required this.onFinished,
+    required this.hostName, required this.guestName});
   final List<String> hostCards, guestCards;
+  final String hostName, guestName;
   final bool isHost;
   final DateTime start;
   final Future<void> Function() onFinished;
@@ -475,6 +490,12 @@ class _OnlineRevealState extends State<_OnlineReveal> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final id in [...widget.hostCards, ...widget.guestCards]) {
+        precacheImage(AssetImage(characterById(id).asset), context);
+      }
+    });
     _clock = Timer.periodic(const Duration(milliseconds: 140), (_) {
       if (!mounted) return;
       setState(() {});
@@ -567,7 +588,7 @@ class _OnlineRevealState extends State<_OnlineReveal> {
     final sp = characterById(ids[active]);
     final accent = team == 0 ? shineAzure : shineEmber;
     final p = (elapsed / 8500).clamp(0.0, 1.0);
-    return ShineScaffold(accent: accent, body: SafeArea(
+    return ShineScaffold(accent: shineGold, body: SafeArea(
       child: LayoutBuilder(builder: (context, bounds) => Center(
         child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 860),
           child: SingleChildScrollView(child: Padding(
@@ -587,9 +608,9 @@ class _OnlineRevealState extends State<_OnlineReveal> {
               Wrap(alignment: WrapAlignment.center, spacing: 22, runSpacing: 14,
                 children: [
                   _miniCards(widget.hostCards, 0, shineAzure,
-                      widget.isHost ? 'TIM A • KAMU' : 'TIM A • LAWAN'),
+                      'TIM A • ${widget.hostName} • ${widget.isHost ? 'KAMU' : 'LAWAN'}'),
                   _miniCards(widget.guestCards, 3, shineEmber,
-                      widget.isHost ? 'TIM B • LAWAN' : 'TIM B • KAMU'),
+                      'TIM B • ${widget.guestName} • ${widget.isHost ? 'LAWAN' : 'KAMU'}'),
                 ]),
               const SizedBox(height: 20),
               Text(n == 0 ? 'KARTU TERSEGEL' : 'KARTU $n / 6  •  TIM ${team == 0 ? 'A' : 'B'}',
@@ -1237,9 +1258,10 @@ class MatchArena extends StatefulWidget {
     required this.canAct, required this.onAction,
     required this.viewerSide, this.isBotMatch = false,
     this.history = const [], this.onReplay,
-    this.turnDeadline, this.onTimeout, this.onExit,
+    this.turnDeadline, this.onTimeout, this.onExit, this.sideNames,
     this.onSurrender, this.onDisband, this.onStopLocal});
   final int viewerSide;
+  final List<String>? sideNames;
   final bool isBotMatch;
   final List<String> history;
   final VoidCallback? onReplay;
@@ -1303,6 +1325,15 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     super.initState();
     reset();
     _amb.repeat();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      for (final team in widget.state['teams'] as List) {
+        for (final card in (team as Map)['cards'] as List) {
+          precacheImage(AssetImage(
+            characterById((card as Map)['id'] as String).asset), context);
+        }
+      }
+    });
     _resultReady = widget.state['winner'] != null;
     _turnTotal = math.max(1, remainingSeconds);
     _playBanner();
@@ -1541,7 +1572,10 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
   String _sideLabel(int side) {
     if (widget.isBotMatch) return side == widget.viewerSide ? 'KAMU' : 'KOMPUTER';
     if (!_personal) return 'TIM ${side == 0 ? 'A' : 'B'}';
-    return side == widget.viewerSide ? 'KAMU' : 'LAWAN';
+    final player = widget.sideNames == null || widget.sideNames!.length < 2
+      ? '' : widget.sideNames![side].trim();
+    final prefix = side == widget.viewerSide ? 'KAMU' : 'LAWAN';
+    return player.isEmpty ? prefix : '$prefix • $player';
   }
 
   void _showHistory() => showModalBottomSheet<void>(
@@ -1978,8 +2012,15 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                 color: shineViolet,
                 dx: s.width * .9 * (1 - Curves.easeOutCubic.transform(_seg(skillP, 0, .2))),
                 opacity: 1 - _seg(skillP, .7, 1))),
-        if (flashA > 0) Positioned.fill(child: IgnorePointer(
-            child: ColoredBox(color: Colors.white.withValues(alpha: flashA.clamp(0.0, 1.0))))),
+        if (flashA > 0 && fx != null) Positioned(
+            left: centerOf(fx.target).dx - cw * .55,
+            top: centerOf(fx.target).dy - ch * .48,
+            width: cw * 1.1, height: ch * .96,
+            child: IgnorePointer(child: DecoratedBox(decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(22),
+              border: Border.all(color: shineGold.withValues(alpha: flashA * 1.8), width: 2),
+              boxShadow: [BoxShadow(color: shineEmber.withValues(alpha: flashA),
+                  blurRadius: 24, spreadRadius: 0)])))),
         if (aim > 0) Positioned(left: centerOf(1 - activeSide).dx - 60,
             top: centerOf(1 - activeSide).dy - ch / 2 - 10, width: 120,
             child: Center(child: StatPill('~$_previewDamage damage',
@@ -2165,35 +2206,23 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
         Align(alignment: Alignment.topCenter,
             child: IgnorePointer(ignoring: !canPlay, child: _controls(canPlay))),
         if (isWaiting || isPending || ended)
-          Positioned.fill(child: ColoredBox(
-              color: const Color(0xC2181525),
-              child: Center(child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(ended ? Icons.emoji_events_outlined :
-                        isPending ? Icons.bolt_rounded :
-                        widget.isBotMatch ? Icons.smart_toy_outlined : Icons.sync_rounded,
-                        color: shineGold, size: 32),
-                    const SizedBox(height: 10),
-                    Text(ended ? 'PERTANDINGAN SELESAI' :
-                        isPending ? 'AKSI DIKIRIM' : 'GILIRAN LAWAN',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 15, color: shineGold,
-                            fontWeight: FontWeight.w900, letterSpacing: 2)),
-                    const SizedBox(height: 6),
-                    Text(ended ? 'Hasil pertandingan telah ditentukan.' :
-                        isPending ? 'Menerapkan strategi dan memperbarui arena…' :
-                        widget.isBotMatch ? 'Komputer sedang menyusun strategi…' :
-                        'Arena sedang menunggu aksi pemain berikutnya.',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 12, color: shineMuted)),
-                    if (isWaiting || isPending) ...[
-                      const SizedBox(height: 16),
-                      const SizedBox(width: 92, child: LinearProgressIndicator(
-                          minHeight: 3, color: shineGold,
-                          backgroundColor: Colors.white12)),
-                    ],
-                  ]))))),
+          Positioned(left: 0, right: 0, top: 0,
+            child: IgnorePointer(child: Container(
+              height: 32,
+              decoration: const BoxDecoration(color: Color(0xF0262031),
+                border: Border(bottom: BorderSide(color: shineGold, width: 1))),
+              alignment: Alignment.center,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(ended ? Icons.emoji_events_outlined :
+                  isPending ? Icons.hourglass_top : Icons.hourglass_bottom,
+                  size: 16, color: shineGold),
+                const SizedBox(width: 8),
+                Text(ended ? 'PERTANDINGAN SELESAI' :
+                  isPending ? 'AKSI DIPROSES…' : 'MENUNGGU GILIRAN LAWAN',
+                  style: const TextStyle(color: shineGold, fontSize: 11,
+                    fontWeight: FontWeight.w900, letterSpacing: .7)),
+              ]))),
+          ),
       ]),
     );
   }
@@ -2256,7 +2285,7 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     return Focus(autofocus: true, onKeyEvent: _keyboardAction,
       child: ShineScaffold(
-      accent: _accent,
+      accent: shineGold,
       body: LayoutBuilder(builder: (context, bounds) {
         final wide = bounds.maxWidth >= 1040 && bounds.maxHeight >= 600;
         final mobileScreen = SafeArea(bottom: false, child: Column(children: [
@@ -2285,7 +2314,8 @@ class _MatchArenaState extends State<MatchArena> with TickerProviderStateMixin {
                       child: mobileScreen))
               : mobileScreen;
         return Stack(children: [
-          Positioned.fill(child: CustomPaint(painter: _ScenePainter(_amb, _accent))),
+          Positioned.fill(child: RepaintBoundary(child: CustomPaint(
+              painter: _ScenePainter(_amb, shineGold)))),
           Positioned.fill(child: screen),
           if (winner != null && _resultReady) _resultOverlay((winner as num).toInt()),
         ]);

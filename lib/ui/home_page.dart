@@ -1,12 +1,10 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../data/characters.dart';
 import '../domain/battle_match.dart';
 import '../game/saved_game.dart';
-import '../online/shine_service.dart';
 import 'arena_page.dart';
+import 'online_rooms_page.dart';
 import 'squad_picker.dart';
 import 'shine_ui.dart';
 
@@ -17,8 +15,8 @@ class ShineHomePage extends StatefulWidget {
 }
 
 class _ShineHomePageState extends State<ShineHomePage> {
-  final code = TextEditingController();
   bool busy = false;
+  bool _entered = false;
   int difficulty = 1;
   SavedGame? saved;
   Map<String, int> records = const {'wins': 0, 'losses': 0, 'games': 0};
@@ -31,9 +29,6 @@ class _ShineHomePageState extends State<ShineHomePage> {
     final stats = await LocalGameStorage.records();
     if (mounted) setState(() { saved = game; records = stats; });
   }
-
-  @override
-  void dispose() { code.dispose(); super.dispose(); }
 
   Future<List<String>?> selectSquad(List<String> defaults, {String title = 'RAKIT TIM'}) =>
       Navigator.push<List<String>>(context, MaterialPageRoute(
@@ -73,66 +68,6 @@ class _ShineHomePageState extends State<ShineHomePage> {
     if (saved == null) return;
     await _openLocal(saved!.battle,
         againstBot: saved!.againstBot, level: saved!.difficulty);
-  }
-
-  Future<void> online({required bool joining}) async {
-    if (joining && code.text.trim().length != 6) {
-      _notify('Masukkan kode ruang enam karakter.');
-      return;
-    }
-    setState(() => busy = true);
-    try {
-      final service = ShineService(Supabase.instance.client);
-      final info = joining
-          ? await service.joinRoom(code.text, const [])
-          : await service.createRoom(const []);
-      if (!mounted) return;
-      await Navigator.push(context, MaterialPageRoute(
-        builder: (_) => OnlineArenaPage(roomId: info['id'] as String,
-            roomCode: info['code'] as String),
-      ));
-    } catch (error) {
-      _notify('Tidak dapat mengakses ruang: $error');
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  Future<void> resumeOnline() async {
-    setState(() => busy = true);
-    try {
-      final service = ShineService(Supabase.instance.client);
-      final rooms = await service.myRooms();
-      if (!mounted) return;
-      if (rooms.isEmpty) { _notify('Belum ada ruang aktif yang bisa dilanjutkan.'); return; }
-      final room = await showDialog<Map<String, dynamic>>(context: context,
-          builder: (context) => SimpleDialog(
-              title: const Text('Ruang daring kamu'),
-              children: [
-                for (final r in rooms) SimpleDialogOption(
-                  onPressed: () => Navigator.pop(context, r),
-                  child: Padding(padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Row(children: [
-                        const Icon(Icons.sports_esports, color: shineGold),
-                        const SizedBox(width: 12),
-                        Expanded(child: Text('${r['code']}', style: const TextStyle(
-                            fontWeight: FontWeight.w900, letterSpacing: 3, fontSize: 16))),
-                        r['status'] == 'playing'
-                            ? const StatPill('Sedang bermain', icon: Icons.bolt, color: shineEmber)
-                            : const StatPill('Lobi menunggu', icon: Icons.hourglass_bottom),
-                      ])),
-                ),
-              ]));
-      if (room == null || !mounted) return;
-      await Navigator.push(context, MaterialPageRoute(builder: (_) =>
-          OnlineArenaPage(roomId: room['id'] as String, roomCode: room['code'] as String)));
-    } catch (error) { _notify('Tidak dapat membaca ruang: $error'); }
-    finally { if (mounted) setState(() => busy = false); }
-  }
-
-  void _notify(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   static const _rules = <(IconData, String, String)>[
@@ -274,60 +209,6 @@ class _ShineHomePageState extends State<ShineHomePage> {
     ])),
   );
 
-  Widget _onlineCard() => ShinePanel(
-    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      const Text('DUA PEMAIN, SATU PANGGUNG', style: TextStyle(
-        color: shineGold, fontSize: 12, letterSpacing: 1.3, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 6),
-      const Text('Bergabung dahulu. Kalian baru memilih 3 kartu setelah hadir berdua.',
-        style: TextStyle(fontSize: 12, color: shineMuted, height: 1.45)),
-      const SizedBox(height: 14),
-      Wrap(spacing: 6, runSpacing: 7, children: const [
-        StatPill('1 • MASUK LOBI', icon: Icons.groups_outlined, color: shineAzure),
-        StatPill('2 • PILIH KARTU', icon: Icons.style_outlined, color: shineGold),
-        StatPill('3 • REVEAL & DUEL', icon: Icons.auto_awesome, color: shineViolet),
-      ]),
-      const SizedBox(height: 18),
-      ShineButton(primary: false, icon: Icons.add_circle_outline,
-        label: 'BUAT RUANG BARU', subtitle: 'Undang teman dengan kode 6 karakter',
-        onPressed: busy ? null : () => online(joining: false)),
-      Padding(padding: const EdgeInsets.symmetric(vertical: 14),
-        child: Row(children: [
-          Expanded(child: Divider(color: Colors.white.withValues(alpha: .12))),
-          const Padding(padding: EdgeInsets.symmetric(horizontal: 10),
-            child: Text('ATAU GABUNG', style: TextStyle(fontSize: 10,
-              color: shineMuted, letterSpacing: 2, fontWeight: FontWeight.w800))),
-          Expanded(child: Divider(color: Colors.white.withValues(alpha: .12))),
-        ])),
-      LayoutBuilder(builder: (context, bounds) {
-        final codeInput = TextField(
-          controller: code, maxLength: 6, textCapitalization: TextCapitalization.characters,
-          textAlign: TextAlign.center,
-          inputFormatters: [FilteringTextInputFormatter.allow(RegExp('[A-Fa-f0-9]'))],
-          style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w900,
-            letterSpacing: 4, color: shineGold),
-          decoration: InputDecoration(counterText: '', hintText: 'A1B2C3',
-            filled: true, fillColor: Colors.black.withValues(alpha: .28),
-            contentPadding: const EdgeInsets.symmetric(vertical: 15),
-            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: Colors.white12)),
-            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: shineGold, width: 1.4))));
-        final join = ShineButton(label: 'GABUNG', height: 56,
-          onPressed: busy ? null : () => online(joining: true));
-        if (bounds.maxWidth < 365) {
-          return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            codeInput, const SizedBox(height: 10), join]);
-        }
-        return Row(children: [Expanded(child: codeInput), const SizedBox(width: 10),
-          SizedBox(width: 118, child: join)]);
-      }),
-      const SizedBox(height: 10),
-      TextButton.icon(onPressed: busy ? null : resumeOnline,
-        icon: const Icon(Icons.restore, size: 18),
-        label: const Text('KEMBALI KE RUANG SAYA')),
-    ]));
-
   Widget _playModes() => Reveal(index: 2,
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       const SectionLabel('MAIN SEKARANG'),
@@ -347,122 +228,103 @@ class _ShineHomePageState extends State<ShineHomePage> {
       _records(),
     ]));
 
-  Widget _onlineSection() => Reveal(index: 4,
+  Future<void> _openOnlineDirectory() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const OnlineRoomsPage()));
+  }
+
+  Widget _startScreen() => SafeArea(child: Center(child: Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 24),
+    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 500),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          const Spacer(flex: 3),
+          const FittedBox(fit: BoxFit.scaleDown, child: Text('SHINE',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 96, fontWeight: FontWeight.w900,
+              color: shineGoldLight, letterSpacing: 14,
+              shadows: [Shadow(color: Color(0x66EFC483), blurRadius: 38)]))),
+          const Spacer(flex: 2),
+          ShineButton(icon: Icons.play_arrow_rounded, height: 66,
+            label: 'MULAI', onPressed: () => setState(() => _entered = true)),
+          const SizedBox(height: 28),
+          const Center(child: Text('v1.4.0',
+            style: TextStyle(fontSize: 12, color: shineMuted, letterSpacing: 2.4))),
+          const Spacer(flex: 1),
+        ]),
+    ),
+  )));
+
+  Widget _menuScreen() => SafeArea(child: LayoutBuilder(builder: (context, bounds) {
+    final wide = bounds.maxWidth >= 820;
+    return ListView(padding: const EdgeInsets.fromLTRB(18, 12, 18, 32), children: [
+      Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1060),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            IconButton(onPressed: () => setState(() => _entered = false),
+              icon: const Icon(Icons.arrow_back_ios_new_rounded), tooltip: 'Kembali ke layar awal'),
+            const SizedBox(width: 6),
+            const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min, children: [
+                Text('SHINE', style: TextStyle(color: shineGoldLight,
+                  fontSize: 27, fontWeight: FontWeight.w900, letterSpacing: 5)),
+                Text('v1.4.0', style: TextStyle(color: shineMuted,
+                  fontSize: 10, letterSpacing: 1.5)),
+              ])),
+            TextButton.icon(onPressed: _howToPlay, icon: const Icon(Icons.help_outline),
+              label: const Text('PANDUAN')),
+          ]),
+          const SizedBox(height: 12),
+          const Text('PILIH MODE BERMAIN', style: TextStyle(fontSize: 12,
+            fontWeight: FontWeight.w900, color: shineMuted, letterSpacing: 2)),
+          const SizedBox(height: 18),
+          if (wide) Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              _playModes(),
+              if (saved != null) _continueCard(),
+            ])),
+            const SizedBox(width: 20),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              _onlineMenuCard(), const SizedBox(height: 12),
+              _recordSection(),
+            ])),
+          ]) else ...[
+            _onlineMenuCard(), const SizedBox(height: 14),
+            _playModes(),
+            if (saved != null) _continueCard(),
+            _recordSection(),
+          ],
+          const SizedBox(height: 30),
+          const Center(child: Text('SHINE  •  v1.4.0',
+            style: TextStyle(color: shineMuted, fontSize: 11, letterSpacing: 2))),
+        ]))),
+    ]);
+  }));
+
+  Widget _onlineMenuCard() => ShinePanel(tint: shineAzure,
     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      const SectionLabel('ARENA ONLINE'),
-      _onlineCard(),
+      const Row(children: [
+        Icon(Icons.language, color: shineAzure), SizedBox(width: 10),
+        Expanded(child: Text('MULTIPLAYER ONLINE', style: TextStyle(
+          color: shineAzure, fontWeight: FontWeight.w900, letterSpacing: 1.4))),
+      ]),
+      const SizedBox(height: 10),
+      const Text('Buat ruang publik atau privat, lihat daftar arena terbuka, '
+        'dan bertarung dengan nama pemainmu sendiri.',
+        style: TextStyle(fontSize: 12, color: shineMuted, height: 1.5)),
+      const SizedBox(height: 18),
+      ShineButton(icon: Icons.public, height: 60, label: 'MASUK ARENA ONLINE',
+        onPressed: busy ? null : _openOnlineDirectory),
     ]));
 
   @override
   Widget build(BuildContext context) => ShineScaffold(
     body: Stack(children: [
-      SafeArea(child: LayoutBuilder(builder: (context, size) {
-        final wide = size.maxWidth >= 880;
-        return ListView(padding: EdgeInsets.fromLTRB(wide ? 28 : 18, 0,
-            wide ? 28 : 18, 28), children: [
-          Center(child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: wide ? 1160 : 620),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Align(alignment: Alignment.centerRight,
-                  child: TextButton.icon(
-                    icon: const Icon(Icons.help_outline, size: 18),
-                    label: const Text('CARA BERMAIN'),
-                    onPressed: _howToPlay)),
-              if (wide)
-                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Expanded(flex: 6, child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    const Reveal(child: _Hero()),
-                    if (saved != null) Reveal(index: 1, child: _continueCard()),
-                    _playModes(),
-                  ])),
-                  const SizedBox(width: 26),
-                  Expanded(flex: 5, child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                    const SizedBox(height: 20),
-                    _onlineSection(),
-                    _recordSection(),
-                    const SizedBox(height: 18),
-                    const Text('Setiap giliran, tentukan PA serang, pertahanan, '
-                        'cadangan, dan kemampuan khas. Bermain lokal bisa tanpa internet.',
-                        style: TextStyle(fontSize: 12, color: shineMuted, height: 1.5)),
-                  ])),
-                ])
-              else ...[
-                const Reveal(child: _Hero()),
-                if (saved != null) Reveal(index: 1, child: _continueCard()),
-                _playModes(),
-                _recordSection(),
-                _onlineSection(),
-              ],
-              const SizedBox(height: 24),
-              const Text('Shine • Manhwa Card Battle  |  3 tokoh per tim',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: shineMuted)),
-            ]),
-          )),
-        ]);
-      })),
-      if (busy) const Stack(children: [
-        ModalBarrier(color: Colors.black54, dismissible: false),
-        Center(child: CircularProgressIndicator()),
-      ]),
+      Positioned.fill(child: _entered ? _menuScreen() : _startScreen()),
+      if (busy) const Positioned.fill(child: ColoredBox(
+        color: Color(0x99000000), child: Center(child: CircularProgressIndicator()))),
     ]),
   );
 
-}
-
-/// Tiga kartu bergaya kipas dengan judul emas di bawahnya.
-class _Hero extends StatelessWidget {
-  const _Hero();
-
-  Widget _card(String id, double w, double h, double angle, Offset offset) {
-    final spec = characterById(id);
-    return Transform.translate(offset: offset, child: Transform.rotate(angle: angle,
-        child: Container(
-          decoration: BoxDecoration(borderRadius: BorderRadius.circular(16),
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: .6),
-                  blurRadius: 22, offset: const Offset(0, 12))]),
-          child: Portrait(spec, width: w, height: h, radius: 16),
-        )));
-  }
-
-  @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 350,
-    child: Stack(children: [
-      Positioned(top: 6, left: 0, right: 0, height: 240, child: Center(
-          child: FittedBox(fit: BoxFit.scaleDown, child: SizedBox(width: 340, height: 240,
-              child: Stack(alignment: Alignment.center, children: [
-                _card('baekseoyeon', 112, 176, -.14, const Offset(-98, 14)),
-                _card('ragnarsigurdsson', 112, 176, .14, const Offset(98, 14)),
-                _card('chaminhyuk', 134, 212, 0, Offset.zero),
-              ]))))),
-      Positioned.fill(child: IgnorePointer(child: DecoratedBox(
-          decoration: BoxDecoration(gradient: LinearGradient(
-              begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              stops: const [.45, .72],
-              colors: [Colors.transparent, shineInk.withValues(alpha: .92)]))))),
-      Align(alignment: Alignment.bottomCenter, child: Column(mainAxisSize: MainAxisSize.min, children: [
-        ShaderMask(
-          shaderCallback: (r) => const LinearGradient(
-              begin: Alignment.topCenter, end: Alignment.bottomCenter,
-              colors: [shineGoldLight, shineGold, shineGoldDeep]).createShader(r),
-          child: const FittedBox(fit: BoxFit.scaleDown, child: Text('SHINE', style: TextStyle(fontSize: 58,
-              fontWeight: FontWeight.w900, letterSpacing: 12, color: Colors.white,
-              height: 1, shadows: [Shadow(color: Color(0x99EFC483), blurRadius: 28)]))),
-        ),
-        const SizedBox(height: 8),
-        const Text('MANHWA CARD BATTLE', style: TextStyle(fontSize: 11,
-            fontWeight: FontWeight.w800, letterSpacing: 4, color: shineMuted)),
-        const SizedBox(height: 12),
-        const Wrap(spacing: 8, children: [
-          StatPill('26 TOKOH', icon: Icons.person_outline, color: shineGold),
-          StatPill('3 KARTU', icon: Icons.style_outlined, color: shineGold),
-          StatPill('1 vs 1', icon: Icons.bolt, color: shineGold),
-        ]),
-      ])),
-    ]),
-  );
 }
 

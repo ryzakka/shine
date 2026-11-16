@@ -318,6 +318,7 @@ class Portrait extends StatelessWidget {
     child: ClipRRect(
       borderRadius: BorderRadius.circular(radius > 1.4 ? radius - 1.4 : radius),
       child: Image.asset(spec.asset, fit: fit, alignment: Alignment.topCenter,
+          gaplessPlayback: true,
           errorBuilder: (_, __, ___) => Container(
             color: const Color(0xFF2A2438), alignment: Alignment.center,
             child: Text(spec.name.substring(0, 1), style: const TextStyle(
