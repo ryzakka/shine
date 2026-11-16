@@ -1,6 +1,6 @@
-# SHINE v0.4 (redesain UI/UX — lihat `PANDUAN_UI_V04.md`)
+> **UI/UX v1.2.0:** Perbaikan arena anti-patahan, layout responsif ponsel/tablet/desktop, indikator aksi, pembatasan lebar panel, dan uji regresi UI. Lihat [UI_UX_PERUBAHAN.md](UI_UX_PERUBAHAN.md).
 
-# SHINE v0.3
+# SHINE v1.2.0 — UI/UX responsif (fitur backend v0.3)
 
 **Pembaruan lobi online, timer giliran, dan kontrol akhir pertandingan.** Baca `PANDUAN_UPDATE_V03.md` untuk migrasi Supabase yang aman dan langkah deploy.
 
@@ -16,15 +16,13 @@
 
 ### A. Main LANGSUNG, tanpa build
 
-Buka `play_now/Shine_Mainkan_Sekarang.html` pada browser Android/Windows. File ini **HTML mandiri offline** berisi seluruh 26 potret dan mekanisme pertarungan. Ini **bukan aplikasi Flutter native** dan tidak mendukung mode online. Cara ini paling cepat untuk mencoba gameplay saat ini.
-
-Ada dua mode: pemain melawan komputer (Santai/Normal/Ahli), atau dua pemain bergantian pada satu perangkat. Progress lokal dan rekor disimpan di browser yang sama melalui localStorage.
+Paket sumber terbaru **tidak menyertakan** `play_now/Shine_Mainkan_Sekarang.html` yang disebut pada dokumentasi v0.3. Untuk menguji aplikasi tanpa membuat APK, jalankan proyek Flutter dengan `flutter run -d chrome` pada komputer yang sudah memiliki Flutter SDK. Mode melawan komputer dan dua pemain lokal tetap bisa dijalankan tanpa koneksi internet setelah dependensi dan aset tersedia.
 
 ### B. Main sebagai aplikasi Android Flutter
 
 Syarat: Flutter SDK (Dart 3.9+), Android SDK, Android Studio dengan Flutter/Dart plugin, emulator atau Android yang sudah mengaktifkan debugging USB.
 
-1. Ekstrak folder `shine` dari ZIP lalu buka folder tersebut di Android Studio.
+1. Ekstrak ZIP ke sebuah folder proyek, misalnya `shine`, lalu buka folder tersebut di Android Studio.
 2. Jalankan `JALANKAN_DI_ANDROID_STUDIO.bat` (Windows), atau buka terminal di folder proyek dan jalankan:
 
    ```bash
@@ -88,11 +86,8 @@ shine/
 ├── lib/game/bot_player.dart
 ├── lib/game/saved_game.dart
 ├── lib/online/shine_service.dart
-├── lib/ui/landing_page.dart       (beranda awal)
-├── lib/ui/menu_page.dart          (menu pilihan mode)
-├── lib/ui/squad_picker.dart       (pemilih tim / koleksi tokoh)
-├── lib/ui/arena_page.dart         (in-game & lobi)
-├── lib/ui/shine_ui.dart           (design system)
+├── lib/ui/home_page.dart
+├── lib/ui/arena_page.dart
 ├── assets/portraits/              (26 kartu)
 ├── android/app/src/main/          (manifest & MainActivity)
 ├── supabase/migrations/001_shine_mvp.sql
@@ -119,3 +114,8 @@ Repository: https://github.com/ryzakka/shine
 3. Di Cloudflare Pages pilih repo `ryzakka/shine`, branch `main`, build command kosong, output `deploy`.
 
 Baca `GITHUB_CLOUDFLARE_PANDUAN.md` untuk penjelasan lengkap.
+
+
+## Catatan khusus UI/UX v1.2.0
+
+Pembaruan ini hanya mengubah tampilan Flutter dan menambahkan uji regresi UI. **Tidak diperlukan migrasi atau pembuatan ulang tabel Supabase untuk pembaruan UI ini.** Aplikasi tetap memakai tabel dan RPC Shine yang sudah terpasang. Bila versi sebelumnya sudah memiliki perubahan lokal, gabungkan file dengan hati-hati. Instruksi lama tentang migrasi SQL v0.3 hanya relevan untuk instalasi yang belum memasang backend itu.

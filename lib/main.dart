@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'online/shine_service.dart';
-import 'ui/landing_page.dart';
+import 'ui/home_page.dart';
 import 'ui/shine_ui.dart';
 
 Future<void> main() async {
@@ -23,7 +23,6 @@ class ShineApp extends StatelessWidget {
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        visualDensity: VisualDensity.standard,
         scaffoldBackgroundColor: shineInk,
         colorScheme: ColorScheme.fromSeed(
           seedColor: shineGold,
@@ -79,7 +78,7 @@ class ShineApp extends StatelessWidget {
           ),
         ),
       ),
-      home: const ShineLandingPage(),
+      home: const ShineHomePage(),
     );
   }
 }
